@@ -39,7 +39,7 @@
     "typecheck": "tsc"
   },
   "simple-git-hooks": {
-    "pre-commit": "bunx lint-staged"
+    "pre-commit": "PATH=\"$HOME/.bun/bin:$PATH\" bunx lint-staged"
   },
   "lint-staged": {
     "*": "bun run lint --fix"

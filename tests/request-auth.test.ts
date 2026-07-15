@@ -112,4 +112,24 @@ describe("request auth middleware", () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ ok: true, scope: "admin" })
   })
+
+  test("accepts gemini x-goog-api-key header", async () => {
+    const app = createApp()
+    const response = await app.request("/models", {
+      headers: {
+        "x-goog-api-key": "regular-key",
+      },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ ok: true, scope: "default" })
+  })
+
+  test("accepts gemini key query parameter", async () => {
+    const app = createApp()
+    const response = await app.request("/models?key=regular-key")
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ ok: true, scope: "default" })
+  })
 })

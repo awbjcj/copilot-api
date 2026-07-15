@@ -60,9 +60,17 @@ export function extractRequestApiKey(c: Context): string | null {
     return xApiKey
   }
 
+  // Google Gemini (google-genai SDK) sends the API key via this header or the
+  // `key` query parameter when pointed at a custom base URL.
+  const googApiKey = c.req.header("x-goog-api-key")?.trim()
+  if (googApiKey) {
+    return googApiKey
+  }
+
   const authorization = c.req.header("authorization")
   if (!authorization) {
-    return null
+    const keyQuery = c.req.query("key")?.trim()
+    return keyQuery || null
   }
 
   const [scheme, ...rest] = authorization.trim().split(/\s+/)

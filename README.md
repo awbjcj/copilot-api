@@ -25,7 +25,7 @@ On the GitHub Copilot path, the gateway prefers Copilot's native Anthropic-style
 
 ## Features
 
-- **OpenAI and Anthropic compatibility**: Serve `/v1/responses`, `/v1/chat/completions`, `/v1/models`, `/v1/embeddings`, and `/v1/messages` from one local gateway.
+- **OpenAI, Anthropic, and Gemini compatibility**: Serve `/v1/responses`, `/v1/chat/completions`, `/v1/models`, `/v1/embeddings`, `/v1/messages`, and Google Gemini `/v1beta/models/{model}:generateContent` from one local gateway.
 - **Copilot is optional**: Use GitHub Copilot when credentials are present, or run the server with only configured providers.
 - **One gateway for Copilot, `codex`, and external providers**: Route GitHub Copilot, the built-in `codex` provider, and configured third-party providers behind the same endpoint.
 - **Standalone third-party providers**: Configure providers such as DashScope, DeepSeek, OpenRouter, or a custom provider and start the gateway without a GitHub Copilot login.
