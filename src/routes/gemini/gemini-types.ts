@@ -14,10 +14,17 @@
  * A single Gemini content part. Text and function-call/response parts are
  * supported; other part kinds (inlineData, fileData) are ignored during
  * conversion since the internal format is text/tool oriented.
+ *
+ * A text part with `thought: true` represents model reasoning ("thinking").
+ * `thoughtSignature` carries the opaque signature Gemini requires to be echoed
+ * back on subsequent turns (only provided when function calling is enabled).
  */
 export type GeminiPart =
-  | { text: string }
-  | { functionCall: { name: string; args?: Record<string, unknown> } }
+  | { text: string; thought?: boolean; thoughtSignature?: string }
+  | {
+      functionCall: { name: string; args?: Record<string, unknown> }
+      thoughtSignature?: string
+    }
   | { functionResponse: { name: string; response: unknown } }
 
 /**

@@ -4,11 +4,13 @@ import type { ChatCompletionResponse } from "../src/services/copilot/create-chat
 
 import type { GeminiRequest } from "../src/routes/gemini/gemini-types"
 import {
+  buildGeminiParts,
   chatResponseToGemini,
   convertGeminiToChatPayload,
   convertGeminiToMessages,
   convertGeminiTools,
   createGeminiStreamChunk,
+  GEMINI_THINKING_TEXT,
   geminiToolCallId,
   mapFinishReason,
   validateGeminiRequest,
@@ -111,6 +113,65 @@ describe("convertGeminiToMessages", () => {
       content: JSON.stringify({ temp: 20 }),
       tool_call_id: geminiToolCallId("get_weather"),
       name: "get_weather",
+    })
+  })
+
+  test("carries thought parts back as assistant reasoning fields", () => {
+    const messages = convertGeminiToMessages({
+      contents: [
+        {
+          role: "model",
+          parts: [
+            {
+              text: "let me think",
+              thought: true,
+              thoughtSignature: "sig-abc",
+            },
+            {
+              functionCall: { name: "get_weather", args: { city: "NYC" } },
+            },
+          ],
+        },
+      ],
+    })
+
+    // Thought text is not leaked into content; it is preserved as reasoning
+    // plus the opaque signature so Gemini can continue the thinking turn.
+    expect(messages[0]).toEqual({
+      role: "assistant",
+      content: null,
+      reasoning_text: "let me think",
+      reasoning_opaque: "sig-abc",
+      tool_calls: [
+        {
+          id: geminiToolCallId("get_weather"),
+          type: "function",
+          function: {
+            name: "get_weather",
+            arguments: JSON.stringify({ city: "NYC" }),
+          },
+        },
+      ],
+    })
+  })
+
+  test("excludes thought text from plain assistant content", () => {
+    const messages = convertGeminiToMessages({
+      contents: [
+        {
+          role: "model",
+          parts: [
+            { text: "hidden reasoning", thought: true },
+            { text: "visible answer" },
+          ],
+        },
+      ],
+    })
+
+    expect(messages[0]).toEqual({
+      role: "assistant",
+      content: "visible answer",
+      reasoning_text: "hidden reasoning",
     })
   })
 })
@@ -316,6 +377,145 @@ describe("chatResponseToGemini", () => {
 
     expect(gemini.candidates[0].content.parts).toEqual([
       { functionCall: { name: "get_weather", args: { city: "NYC" } } },
+    ])
+  })
+
+  test("emits reasoning as a leading thought part with signature", () => {
+    const response: ChatCompletionResponse = {
+      id: "id",
+      object: "chat.completion",
+      created: 0,
+      model: "gemini-2.5-pro",
+      choices: [
+        {
+          index: 0,
+          logprobs: null,
+          finish_reason: "tool_calls",
+          message: {
+            role: "assistant",
+            content: null,
+            reasoning_text: "thinking about the weather",
+            reasoning_opaque: "sig-xyz",
+            tool_calls: [
+              {
+                id: "call-1",
+                type: "function",
+                function: {
+                  name: "get_weather",
+                  arguments: JSON.stringify({ city: "NYC" }),
+                },
+              },
+            ],
+          },
+        },
+      ],
+    }
+
+    const gemini = chatResponseToGemini(response, "gemini-2.5-pro", "resp-3")
+
+    expect(gemini.candidates[0].content.parts).toEqual([
+      {
+        text: "thinking about the weather",
+        thought: true,
+        thoughtSignature: "sig-xyz",
+      },
+      { functionCall: { name: "get_weather", args: { city: "NYC" } } },
+    ])
+  })
+
+  test("uses fallback text for a signature-only thought", () => {
+    const response: ChatCompletionResponse = {
+      id: "id",
+      object: "chat.completion",
+      created: 0,
+      model: "gemini-2.5-pro",
+      choices: [
+        {
+          index: 0,
+          logprobs: null,
+          finish_reason: "tool_calls",
+          message: {
+            role: "assistant",
+            content: null,
+            reasoning_opaque: "sig-only",
+            tool_calls: [
+              {
+                id: "call-1",
+                type: "function",
+                function: { name: "noop", arguments: "{}" },
+              },
+            ],
+          },
+        },
+      ],
+    }
+
+    const gemini = chatResponseToGemini(response, "gemini-2.5-pro", "resp-4")
+
+    expect(gemini.candidates[0].content.parts[0]).toEqual({
+      text: GEMINI_THINKING_TEXT,
+      thought: true,
+      thoughtSignature: "sig-only",
+    })
+  })
+
+  test("falls back to reasoning_content when reasoning_text is absent", () => {
+    const response: ChatCompletionResponse = {
+      id: "id",
+      object: "chat.completion",
+      created: 0,
+      model: "gemini-2.5-pro",
+      choices: [
+        {
+          index: 0,
+          logprobs: null,
+          finish_reason: "stop",
+          message: {
+            role: "assistant",
+            content: "answer",
+            reasoning_content: "reasoned",
+          },
+        },
+      ],
+    }
+
+    const gemini = chatResponseToGemini(response, "gemini-2.5-pro", "resp-5")
+
+    expect(gemini.candidates[0].content.parts).toEqual([
+      { text: "reasoned", thought: true },
+      { text: "answer" },
+    ])
+  })
+})
+
+describe("buildGeminiParts", () => {
+  test("returns an empty text part when nothing is present", () => {
+    expect(buildGeminiParts(null)).toEqual([{ text: "" }])
+  })
+
+  test("omits the thought part when reasoning is empty", () => {
+    expect(
+      buildGeminiParts("hi", undefined, { text: null, signature: null }),
+    ).toEqual([{ text: "hi" }])
+  })
+
+  test("orders reasoning before content and tool calls", () => {
+    const parts = buildGeminiParts(
+      "the answer",
+      [
+        {
+          id: "c1",
+          type: "function",
+          function: { name: "fn", arguments: "{}" },
+        },
+      ],
+      { text: "reasoning", signature: "sig" },
+    )
+
+    expect(parts).toEqual([
+      { text: "reasoning", thought: true, thoughtSignature: "sig" },
+      { text: "the answer" },
+      { functionCall: { name: "fn", args: {} } },
     ])
   })
 })

@@ -157,6 +157,8 @@ export async function handleGenerateContent(
     let openAIUsage: ChatCompletionResponse["usage"]
     let finishReason: string | null | undefined
     const toolCalls = new Map<number, StreamingToolCall>()
+    let reasoningText = ""
+    let reasoningSignature: string | undefined
 
     for await (const chunk of response) {
       const parsed = parseChatCompletionChunk(chunk)
@@ -178,6 +180,9 @@ export async function handleGenerateContent(
       if (choice.finish_reason) finishReason = choice.finish_reason
 
       const delta = choice.delta
+      const reasoningDelta = delta.reasoning_text ?? delta.reasoning_content
+      if (reasoningDelta) reasoningText += reasoningDelta
+      if (delta.reasoning_opaque) reasoningSignature = delta.reasoning_opaque
       if (delta.content) {
         await sse.writeSSE({
           data: JSON.stringify(
@@ -202,18 +207,30 @@ export async function handleGenerateContent(
       }
     }
 
-    // Emit accumulated tool calls (Gemini functionCall needs complete args).
-    const finalParts: Array<GeminiPart> =
-      toolCalls.size > 0 ?
-        buildGeminiParts(
-          null,
-          [...toolCalls.values()].map((tc) => ({
-            id: tc.id || `gemini-call-${tc.name}`,
-            type: "function" as const,
-            function: { name: tc.name, arguments: tc.arguments || "{}" },
-          })),
-        )
-      : [{ text: "" }]
+    // Emit the accumulated reasoning (as a leading `thought` part) together with
+    // tool calls. Gemini functionCall parts need complete args, so they are
+    // flushed here rather than streamed incrementally.
+    const reasoning = {
+      text: reasoningText || null,
+      signature: reasoningSignature ?? null,
+    }
+    const hasReasoning = Boolean(reasoning.text || reasoning.signature)
+    let finalParts: Array<GeminiPart>
+    if (toolCalls.size > 0) {
+      finalParts = buildGeminiParts(
+        null,
+        [...toolCalls.values()].map((tc) => ({
+          id: tc.id || `gemini-call-${tc.name}`,
+          type: "function" as const,
+          function: { name: tc.name, arguments: tc.arguments || "{}" },
+        })),
+        reasoning,
+      )
+    } else if (hasReasoning) {
+      finalParts = buildGeminiParts(null, undefined, reasoning)
+    } else {
+      finalParts = [{ text: "" }]
+    }
 
     await sse.writeSSE({
       data: JSON.stringify(

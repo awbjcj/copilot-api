@@ -17,6 +17,47 @@ import type {
 } from "./gemini-types"
 
 /**
+ * Fallback reasoning text used when a thought part carries only a signature
+ * (no text). Gemini 3 thinking emits signature-only thoughts on tool-calling
+ * turns; emitting an empty thought would make some clients (e.g.
+ * langchain-google-genai) build a reasoning block without a `reasoning` field,
+ * which then crashes on the next round-trip. A non-empty text avoids that.
+ */
+export const GEMINI_THINKING_TEXT = "Thinking..."
+
+interface GeminiReasoning {
+  text?: string | null
+  signature?: string | null
+}
+
+/**
+ * Type guard for a Gemini "thought" (reasoning) part: a text part flagged with
+ * `thought: true`.
+ */
+function isGeminiThoughtPart(
+  part: GeminiPart,
+): part is { text: string; thought?: boolean; thoughtSignature?: string } {
+  return (
+    typeof (part as { text?: unknown }).text === "string"
+    && (part as { thought?: unknown }).thought === true
+  )
+}
+
+/**
+ * Collects reasoning text and signature from the thought parts of a turn.
+ * Returns undefined when there are no thought parts.
+ */
+function geminiPartsReasoning(
+  parts: Array<GeminiPart>,
+): GeminiReasoning | undefined {
+  const thoughts = parts.filter(isGeminiThoughtPart)
+  if (thoughts.length === 0) return undefined
+  const text = thoughts.map((p) => p.text).join("")
+  const signature = thoughts.map((p) => p.thoughtSignature).find(Boolean)
+  return { text: text || null, signature: signature ?? null }
+}
+
+/**
  * Synthesizes a stable tool-call id from a function name. Gemini function
  * calls/responses have no ids and are correlated by name, but the internal
  * (OpenAI) format correlates tool calls and their results by id. Deriving the
@@ -75,13 +116,15 @@ export function validateGeminiRequest(request: GeminiRequest): string | null {
 }
 
 /**
- * Extracts joined text from a list of Gemini parts.
+ * Extracts joined text from a list of Gemini parts. Thought (reasoning) parts
+ * are excluded so model reasoning is not fed back as ordinary message content.
  */
 function geminiPartsText(parts: Array<GeminiPart>): string {
   return parts
     .filter(
       (p): p is { text: string } =>
-        typeof (p as { text?: unknown }).text === "string",
+        typeof (p as { text?: unknown }).text === "string"
+        && (p as { thought?: unknown }).thought !== true,
     )
     .map((p) => p.text)
     .join("")
@@ -122,10 +165,21 @@ export function convertGeminiToMessages(
     )
 
     if (content.role === "model") {
+      const reasoning = geminiPartsReasoning(parts)
+      const reasoningFields =
+        reasoning ?
+          {
+            ...(reasoning.text ? { reasoning_text: reasoning.text } : {}),
+            ...(reasoning.signature ?
+              { reasoning_opaque: reasoning.signature }
+            : {}),
+          }
+        : {}
       if (functionCalls.length > 0) {
         messages.push({
           role: "assistant",
           content: textParts || null,
+          ...reasoningFields,
           tool_calls: functionCalls.map((fc) => ({
             id: geminiToolCallId(fc.functionCall.name),
             type: "function" as const,
@@ -136,7 +190,11 @@ export function convertGeminiToMessages(
           })),
         })
       } else {
-        messages.push({ role: "assistant", content: textParts })
+        messages.push({
+          role: "assistant",
+          content: textParts,
+          ...reasoningFields,
+        })
       }
     } else if (functionResponses.length > 0) {
       for (const fr of functionResponses) {
@@ -324,15 +382,26 @@ export function mapFinishReason(
 }
 
 /**
- * Builds the model output parts for a Gemini candidate from text + tool calls.
- * Always returns at least one part so candidates are never empty (an empty
- * candidate is surfaced by clients as "no response").
+ * Builds the model output parts for a Gemini candidate from reasoning + text +
+ * tool calls. Reasoning (if any) is emitted first as a `thought` part, matching
+ * Gemini's native ordering. Always returns at least one part so candidates are
+ * never empty (an empty candidate is surfaced by clients as "no response").
  */
 export function buildGeminiParts(
   content: string | null | undefined,
   toolCalls?: Array<ToolCall>,
+  reasoning?: GeminiReasoning,
 ): Array<GeminiPart> {
   const parts: Array<GeminiPart> = []
+  if (reasoning && (reasoning.text || reasoning.signature)) {
+    parts.push({
+      // A signature-only thought must still carry non-empty text so downstream
+      // clients don't build a reasoning block without a text field.
+      text: reasoning.text || GEMINI_THINKING_TEXT,
+      thought: true,
+      ...(reasoning.signature ? { thoughtSignature: reasoning.signature } : {}),
+    })
+  }
   if (content) {
     parts.push({ text: content })
   }
@@ -375,7 +444,15 @@ export function chatResponseToGemini(
 ): GeminiResponse {
   const choice = response.choices[0]
   const message = choice?.message
-  const parts = buildGeminiParts(message?.content, message?.tool_calls)
+  const reasoning: GeminiReasoning = {
+    text: message?.reasoning_text ?? message?.reasoning_content,
+    signature: message?.reasoning_opaque,
+  }
+  const parts = buildGeminiParts(
+    message?.content,
+    message?.tool_calls,
+    reasoning,
+  )
 
   return {
     candidates: [
