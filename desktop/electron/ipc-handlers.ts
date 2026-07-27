@@ -29,6 +29,7 @@ import {
   isRunning,
 } from './server-manager'
 import { readSettings, writeSettings } from './settings-store'
+import { runSettingsTransaction } from './settings-transaction'
 import type {
   DesktopAuthMode,
   DesktopProxySettings,
@@ -51,6 +52,10 @@ interface IpcHandlersOptions {
     settings: DesktopSettings,
   ) => DesktopProxySettings
   onSettingsChange?: (
+    settings: DesktopSettings,
+    prevSettings: DesktopSettings,
+  ) => void | Promise<void>
+  onBeforeSettingsSave?: (
     settings: DesktopSettings,
     prevSettings: DesktopSettings,
   ) => void | Promise<void>
@@ -291,8 +296,11 @@ export function registerIpcHandlers(
   ipcMain.handle('settings:get', async () => readSettings())
   ipcMain.handle('settings:save', async (_event, settings: DesktopSettings) => {
     const prev = await readSettings()
-    await writeSettings(settings)
-    // Notify the main process after settings are saved so tray state and labels stay in sync.
+    await runSettingsTransaction(
+      () => options.onBeforeSettingsSave?.(settings, prev),
+      () => writeSettings(settings),
+      () => options.onBeforeSettingsSave?.(prev, settings),
+    )
     if (options.onSettingsChange) {
       await options.onSettingsChange(settings, prev)
     }

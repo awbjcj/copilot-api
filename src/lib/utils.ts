@@ -40,7 +40,9 @@ const refreshModels = async (fetcher: ModelsFetcher) => {
     ...models,
     data: models.data.filter(
       (model) =>
-        model.model_picker_enabled || model.capabilities.type === "embeddings",
+        model.policy?.state !== "disabled"
+        && (model.model_picker_enabled
+          || model.capabilities.type === "embeddings"),
     ),
   }
   const nextIds = state.models.data.map((m) => m.id)

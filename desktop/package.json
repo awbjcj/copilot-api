@@ -1,7 +1,9 @@
 {
   "name": "copilot-api-desktop",
-  "version": "1.14.9",
+  "version": "1.14.17",
   "description": "Copilot API Desktop App",
+  "author": "jeffreycao",
+  "desktopName": "copilot-api.desktop",
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
@@ -83,7 +85,12 @@
       "uninstallerIcon": "build/icon.ico"
     },
     "linux": {
-      "target": "AppImage"
+      "target": "AppImage",
+      "artifactName": "Copilot-API-${version}-linux-${arch}.${ext}",
+      "category": "Development",
+      "executableName": "copilot-api",
+      "icon": "assets/icon.png",
+      "syncDesktopName": true
     }
   },
   "devDependencies": {

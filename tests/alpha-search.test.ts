@@ -295,6 +295,24 @@ describe("Codex alpha search forwarding", () => {
     })
   })
 
+  test("preserves non-JSON upstream responses when debug logging is enabled", async () => {
+    state.verbose = true
+    const nonJsonFetchMock = mock(
+      (): Promise<Response> =>
+        Promise.resolve(new Response("upstream failed", { status: 502 })),
+    )
+    ;(globalThis as unknown as { fetch: typeof fetch }).fetch =
+      nonJsonFetchMock as unknown as typeof fetch
+
+    const response = await createApp().request("/alpha/search", {
+      method: "POST",
+      body: JSON.stringify(alphaSearchPayload),
+    })
+
+    expect(response.status).toBe(502)
+    expect(await response.text()).toBe("upstream failed")
+  })
+
   test("adds JSON content type when a request body has none", async () => {
     await forwardCodexAlphaSearch(
       new Request("http://localhost/alpha/search", {

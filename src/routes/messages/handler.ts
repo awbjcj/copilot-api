@@ -94,9 +94,12 @@ export async function handleCompletion(c: Context) {
   // set "CLAUDE_CODE_SUBAGENT_MODEL": "you small model" also can avoid this
   const anthropicBeta = c.req.header("anthropic-beta")
   logger.debug("Anthropic Beta header:", anthropicBeta)
-  const noTools = !anthropicPayload.tools || anthropicPayload.tools.length === 0
-  if (anthropicBeta && noTools && compactType === 0) {
-    anthropicPayload.model = getSmallModel()
+  if (!state.tokenBasedBilling) {
+    const tools = anthropicPayload.tools
+    const noTools = !tools || tools.length === 0
+    if (anthropicBeta && noTools && compactType === 0) {
+      anthropicPayload.model = getSmallModel()
+    }
   }
 
   if (compactType) {

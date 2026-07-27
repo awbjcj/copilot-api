@@ -9,6 +9,7 @@ import {
 import {
   normalizeProxySettings,
   normalizeSettings,
+  setLaunchAtLoginFallback,
 } from '../electron/settings-store'
 import type { DesktopProxySettings } from '../src/types/ipc'
 
@@ -169,6 +170,8 @@ describe('desktop proxy config', () => {
       oauthApp: 'default',
       enterpriseUrl: '',
       lastPort: 4141,
+      launchAtLogin: false,
+      autoStartServer: false,
       minimizeToTray: false,
       accountType: 'individual',
       verbose: false,
@@ -189,6 +192,8 @@ describe('desktop proxy config', () => {
         oauthApp: 'opencode',
         enterpriseUrl: 'ghe.example.com',
         lastPort: 5151,
+        launchAtLogin: true,
+        autoStartServer: true,
         minimizeToTray: true,
         accountType: 'enterprise',
         verbose: true,
@@ -201,6 +206,8 @@ describe('desktop proxy config', () => {
       oauthApp: 'opencode',
       enterpriseUrl: 'ghe.example.com',
       lastPort: 5151,
+      launchAtLogin: true,
+      autoStartServer: true,
       minimizeToTray: true,
       accountType: 'enterprise',
       verbose: true,
@@ -222,5 +229,17 @@ describe('desktop proxy config', () => {
     ).toBe('auto')
     expect(normalizeSettings({}).theme).toBe('auto')
     expect(normalizeSettings(null).theme).toBe('auto')
+  })
+
+  test('preserves the OS login state when migrating old settings', () => {
+    setLaunchAtLoginFallback(true)
+    try {
+      expect(normalizeSettings({}).launchAtLogin).toBe(true)
+      expect(normalizeSettings({ launchAtLogin: false }).launchAtLogin).toBe(
+        false,
+      )
+    } finally {
+      setLaunchAtLoginFallback(false)
+    }
   })
 })

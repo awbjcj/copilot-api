@@ -131,9 +131,16 @@ docker run -p 4141:4141 -e GH_TOKEN=your_github_token_here copilot-api
 
 如果你更喜欢图形界面，仓库里还提供了位于 `desktop/` 的 Electron 桌面应用。它支持 GitHub Copilot 登录、OpenAI Codex OAuth，以及 DeepSeek、DashScope、OpenRouter 或自定义 provider 的 API Key 配置。授权或配置 provider 后，可以一键启动或停止本地代理，并在界面里直接查看本地端点、鉴权 Header、可用模型、额度和日志。
 
-设置页还可以配置 `OAuth App`、`API Home`、`Enterprise URL`、详细日志以及最小化到托盘。桌面安装包发布在 GitHub Releases：
+设置页还可以配置 `OAuth App`、`API Home`、`Enterprise URL`、详细日志以及最小化到托盘。Windows x64（`.exe`）、macOS Apple Silicon（`.dmg`）和 Linux x64（`.AppImage`）安装包发布在 GitHub Releases：
 
 https://github.com/caozhiyuan/copilot-api/releases
+
+Linux 用户需要先为下载的 AppImage 添加执行权限：
+
+```sh
+chmod +x Copilot-API-*-linux-x86_64.AppImage
+./Copilot-API-*-linux-x86_64.AppImage
+```
 
 下载对应平台的安装包后，在应用内授权或配置 provider，选择端口并启动服务，再把你的客户端指向应用里显示的本地端点即可。发布版桌面应用使用随包内置的 Electron 运行时，正常使用不需要额外安装 Node.js；token usage 历史记录会在该内置运行时支持 SQLite 时启用。
 
@@ -162,7 +169,7 @@ https://github.com/caozhiyuan/copilot-api/releases
 npx @jeffreycao/copilot-api@latest start --claude-code
 ```
 
-你会被提示选择一个主模型，以及一个用于后台任务的 "small, fast" 模型。选择完成后，会有一条命令被复制到剪贴板中。该命令会设置 Claude Code 使用这个 AI gateway 所需的环境变量。
+你不再需要手动选择模型。Gateway 会自动检测每个 Claude Code 尺寸档位对应的最新可用模型——opus 映射到最新的 Opus 模型，sonnet 映射到最新的 Sonnet 模型，haiku 映射到最新的 Haiku 模型——并生成相应设置 `ANTHROPIC_DEFAULT_OPUS_MODEL`、`ANTHROPIC_DEFAULT_SONNET_MODEL` 和 `ANTHROPIC_DEFAULT_HAIKU_MODEL` 的命令。若某个档位没有匹配的可用模型，则会被省略。该命令会被复制到剪贴板，并设置 Claude Code 使用这个 AI gateway 所需的环境变量。
 
 在新的终端中粘贴并执行这条命令，即可启动 Claude Code。
 
@@ -179,9 +186,12 @@ npx @jeffreycao/copilot-api@latest start --claude-code
   "env": {
     "ANTHROPIC_BASE_URL": "http://localhost:4141",
     "ANTHROPIC_AUTH_TOKEN": "dummy",
-    "ANTHROPIC_MODEL": "deepseek/deepseek-v4-pro",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": "deepseek/deepseek-v4-pro",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "deepseek/deepseek-v4-flash",
+    "ANTHROPIC_MODEL": "gpt-5.6-sol[1m]",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "gpt-5.6-sol[1m]",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "gpt-5.6-luna[1m]",
+    "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "272000",
+    "CLAUDE_CODE_USE_VERTEX": "0",
+    "CLAUDE_CODE_USE_BEDROCK": "0",
     "DISABLE_NON_ESSENTIAL_MODEL_CALLS": "1",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
     "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
@@ -189,15 +199,21 @@ npx @jeffreycao/copilot-api@latest start --claude-code
     "CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "true",
     "CLAUDE_CODE_ENABLE_AWAY_SUMMARY": "0"
   },
-  "permissions": {
-    "deny": [
-      "mcp__ide__executeCode"
-    ]
-  }
+  "alwaysThinkingEnabled": true,
+  "effortLevel": "xhigh",
+  "showThinkingSummaries": true
 }
 ```
 
 - 请根据需要替换 `ANTHROPIC_MODEL`、`ANTHROPIC_DEFAULT_OPUS_MODEL`、`ANTHROPIC_DEFAULT_SONNET_MODEL` 和 `ANTHROPIC_DEFAULT_HAIKU_MODEL`。配置完成后，请安装 claude code 插件，见 [插件集成](#plugin-integrations)。
+- 如果你使用的是 codex provider，建议**不要**将模型名配置成 `codex/xxx` 格式（如 `codex/gpt-5.6-sol`）。Claude Code 会针对 `codex/` 前缀做降智行为——例如每次请求时移除所有之前返回的思考块（thinking blocks）。请使用纯模型名（如 `gpt-5.6-sol`），并在 `config.json` 中配置 `modelMappings` 将其映射回 codex provider：
+  ```json
+  "modelMappings": {
+    "gpt-5.6-sol": "codex/gpt-5.6-sol",
+    "gpt-5.6-terra": "codex/gpt-5.6-terra",
+    "gpt-5.6-luna": "codex/gpt-5.6-luna"
+  },
+  ```
 - 将 `CLAUDE_CODE_ATTRIBUTION_HEADER` 设为 `0` 可以阻止 Claude Code 在 system prompt 中附加计费和版本信息，从而避免 prompt cache 失效。
 - 关闭 `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION` 和 `CLAUDE_CODE_ENABLE_AWAY_SUMMARY` 可以避免不必要地消耗额度。
 - Claude Code WebSearch 已支持纯搜索请求。Copilot 路径请保持全局 `messageApiWebSearchModel` 指向 Responses-capable GPT 模型或 `provider/model` 别名；provider 路由请使用原生 Anthropic provider 或 `openai-responses` provider。只有在你明确想禁止这类流量时，才需要把 `WebSearch` 加到 `permissions.deny`。
@@ -617,8 +633,8 @@ Copilot API 现在使用子命令结构，主要命令包括：
     }
   }
   ```
-  内置 token 价格覆盖 Codex GPT 模型（USD）、DashScope `qwen3.7-max`、`qwen3.7-plus`、`glm-5.1`、`glm-5.2`（CNY），DeepSeek `deepseek-v4-flash`、`deepseek-v4-pro`、`deepseek-chat`、`deepseek-reasoner`（CNY），以及 OpenCode Go 模型（`glm-5.2`、`deepseek-v4-flash`、`deepseek-v4-pro`、`kimi-k2.7-code`、`mimo-v2.5`、`mimo-v2.5-pro`、`qwen3.7-plus`、`qwen3.7-max`、`minimax-m2.5`、`minimax-m3`，USD）。用户配置的 `pricing` 优先于内置价格。DashScope 若上游 usage 中出现 `cache_creation_input_tokens` 字段，cached tokens 按显式缓存读价计费；否则 `cachedInput` 作为隐式缓存读价。DeepSeek 的 `prompt_cache_hit_tokens` 会归入 cached input，`prompt_cache_miss_tokens` 会归入普通 input。
-- **smallModel：** 无工具预热消息的回退模型（例如 Claude Code 的探测请求）；默认是 `gpt-5-mini`。
+  内置 token 价格覆盖 Codex GPT 模型（USD）、DashScope `qwen3.7-max`、`qwen3.7-plus`、`glm-5.1`、`glm-5.2`（CNY），DeepSeek `deepseek-v4-flash`、`deepseek-v4-pro`、`deepseek-chat`、`deepseek-reasoner`（CNY），以及 OpenCode Go 模型（`glm-5.2`、`grok-4.5`、`deepseek-v4-flash`、`deepseek-v4-pro`、`kimi-k2.7-code`、`kimi-k3`、`mimo-v2.5`、`mimo-v2.5-pro`、`qwen3.7-plus`、`qwen3.7-max`、`minimax-m2.7`、`minimax-m3`，USD）。用户配置的 `pricing` 优先于内置价格。DashScope 若上游 usage 中出现 `cache_creation_input_tokens` 字段，cached tokens 按显式缓存读价计费；否则 `cachedInput` 作为隐式缓存读价。DeepSeek 的 `prompt_cache_hit_tokens` 会归入 cached input，`prompt_cache_miss_tokens` 会归入普通 input。
+- **smallModel：** 无工具预热消息的回退模型（例如 Claude Code 的探测请求）；默认是 `gpt-5-mini`。网关会对无工具的预热或探测请求强制使用该小模型，以避免消耗 premium 请求。该行为仅在 GitHub Copilot 账户为非 token-based 计费时生效（`token_based_billing` 为 false）；对于 token-based 计费账户，预热小模型回退会被跳过，因为不存在需要节省的 premium 请求配额。
 - **contextManagement：** 控制代理是否为 Responses API 附加 `context_management` 压缩指令。`messages` 作用于被翻译成 Responses API 的 Anthropic 风格 `/v1/messages` 请求，包括 `openai-responses` provider 的 Messages 路由，默认值为 `true`。`responses` 作用于 native `/v1/responses` 流量，包括 `provider/model` 别名和内置 `codex` provider，默认值为 `false`。只有在确认客户端支持 context management compaction 后，才建议在 Responses API 下启用 `responses`。启用后，请求体会带上 `context_management`，并在后续轮次中仅保留最新的压缩承载内容。**注意：** 对于 GPT-5.6 及以上模型（如 `gpt-5.6-sol`、`gpt-5.6-terra`、`gpt-5.6-luna`），context management 功能会被强制禁用，因为开启后会破坏这些模型的 prompt 缓存命中。此强制覆盖优先于 `contextManagement` 和 `modelResponsesApiCompactThresholds` 配置。
 - **modelResponsesApiCompactThresholds：** 按模型覆盖 Responses API 的 `compact_threshold`，仅在代理自动附加 `context_management` 时使用。它的优先级高于 `resolveResponsesCompactThreshold` 基于 `max_prompt_tokens * ratio` 的兜底阈值。默认将 `gpt-5.4` 和 `gpt-5.5` 设为 `217600`（`272000 * 0.8`），将 `gpt-5.6-sol`、`gpt-5.6-terra`、`gpt-5.6-luna` 设为 `231200`（`272000 * 0.85`）。未列出的模型继续使用原有兜底逻辑。
 - **modelReasoningEfforts：** `/v1/messages` 请求的模型级默认推理强度。仅当请求没有传入 `output_config.effort` 时，该配置才会生效。

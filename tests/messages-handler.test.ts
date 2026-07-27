@@ -213,7 +213,7 @@ describe("messages handler orchestration", () => {
     ])
   })
 
-  test("removes executeCode and rewrites getDiagnostics before forwarding tools", async () => {
+  test("rewrites getDiagnostics description before forwarding tools", async () => {
     selectedModel = {
       id: "messages-model",
       supported_endpoints: ["/v1/messages"],
@@ -253,6 +253,11 @@ describe("messages handler orchestration", () => {
 
     const [, forwardedPayload] = handleWithMessagesApi.mock.calls[0]
     expect(forwardedPayload.tools).toEqual([
+      {
+        name: "mcp__ide__executeCode",
+        description: "Execute code in VS Code",
+        input_schema: { type: "object" },
+      },
       {
         name: "mcp__ide__getDiagnostics",
         description:

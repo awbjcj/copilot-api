@@ -692,6 +692,27 @@
           return Number.isFinite(value) ? Number(value).toLocaleString() : "0";
         }
 
+        function getMetricDisplayText(value) {
+          return typeof value === "number" ? formatNumber(value) : value;
+        }
+
+        function resolveMetricValueFontSize(displayTexts) {
+          const cards = Array.isArray(displayTexts)
+            ? displayTexts
+            : [displayTexts];
+          const longest = cards.reduce((max, cardText) => {
+            const lines = Array.isArray(cardText) ? cardText : [cardText];
+            const cardMax = lines.reduce((m, line) => {
+              return Math.max(m, String(line ?? "").length);
+            }, 0);
+            return Math.max(max, cardMax);
+          }, 0);
+          if (longest <= 7) return "";
+          if (longest <= 11) return "clamp(15px, 1.3vw, 18px)";
+          if (longest <= 15) return "clamp(13px, 1.1vw, 16px)";
+          return "clamp(11px, 1vw, 14px)";
+        }
+
         function formatCurrencyAmount(currency, amount) {
           const symbols = {
             CNY: "¥",
@@ -1029,41 +1050,63 @@
               <div class="metric-grid metric-grid-tight ${
                 state.isTokenUsageLoading ? "opacity-60" : ""
               }">
-                ${renderTokenUsageMetric(
-                  "Total",
-                  totals.total_tokens,
-                  "var(--color-fg-lightest)"
-                )}
-                ${renderTokenUsageMetric(
-                  "Input",
-                  totals.input_tokens,
-                  "var(--color-blue-accent)"
-                )}
-                ${renderTokenUsageMetric(
-                  "Output",
-                  totals.output_tokens,
-                  "var(--color-green-accent)"
-                )}
-                ${renderTokenUsageMetric(
-                  "Cache Read",
-                  totals.cache_read_input_tokens,
-                  "var(--color-aqua-accent)"
-                )}
-                ${renderTokenUsageMetric(
-                  "Cache Write",
-                  totals.cache_creation_input_tokens,
-                  "var(--color-yellow-accent)"
-                )}
-                ${renderTokenUsageMetric(
-                  "Requests",
-                  totals.request_count,
-                  "var(--color-purple-accent)"
-                )}
-                ${renderTokenUsageCostMetric(
-                  "Cost",
-                  formatTokenUsageCosts(totals.costs),
-                  "var(--color-yellow-accent)"
-                )}
+                ${
+                  (() => {
+                    const metricFontSize = resolveMetricValueFontSize([
+                      getMetricDisplayText(totals.total_tokens),
+                      getMetricDisplayText(totals.input_tokens),
+                      getMetricDisplayText(totals.output_tokens),
+                      getMetricDisplayText(totals.cache_read_input_tokens),
+                      getMetricDisplayText(totals.cache_creation_input_tokens),
+                      getMetricDisplayText(totals.request_count),
+                      formatTokenUsageCosts(totals.costs),
+                    ]);
+                    return [
+                      renderTokenUsageMetric(
+                        "Total",
+                        totals.total_tokens,
+                        "var(--color-fg-lightest)",
+                        metricFontSize
+                      ),
+                      renderTokenUsageMetric(
+                        "Input",
+                        totals.input_tokens,
+                        "var(--color-blue-accent)",
+                        metricFontSize
+                      ),
+                      renderTokenUsageMetric(
+                        "Output",
+                        totals.output_tokens,
+                        "var(--color-green-accent)",
+                        metricFontSize
+                      ),
+                      renderTokenUsageMetric(
+                        "Cache Read",
+                        totals.cache_read_input_tokens,
+                        "var(--color-aqua-accent)",
+                        metricFontSize
+                      ),
+                      renderTokenUsageMetric(
+                        "Cache Write",
+                        totals.cache_creation_input_tokens,
+                        "var(--color-yellow-accent)",
+                        metricFontSize
+                      ),
+                      renderTokenUsageMetric(
+                        "Requests",
+                        totals.request_count,
+                        "var(--color-purple-accent)",
+                        metricFontSize
+                      ),
+                      renderTokenUsageCostMetric(
+                        "Cost",
+                        formatTokenUsageCosts(totals.costs),
+                        "var(--color-yellow-accent)",
+                        metricFontSize
+                      ),
+                    ].join("");
+                  })()
+                }
               </div>
 
               ${renderTokenUsageDailyTrend(
@@ -1477,31 +1520,32 @@
             .join("");
         }
 
-        function renderTokenUsageMetric(label, value, accentColor) {
+        function renderTokenUsageMetric(label, value, accentColor, fontSize) {
+          const displayText = getMetricDisplayText(value);
           return `
             <div class="metric-card">
               <div class="metric-label">
                 <span class="metric-dot" style="background-color: ${accentColor};"></span>
                 <span>${escapeHtml(label)}</span>
               </div>
-              <div class="metric-value" style="color: var(--color-fg-lightest);">${renderTokenUsageValueLines(
-                typeof value === "number" ? formatNumber(value) : value
-              )}</div>
+              <div class="metric-value" style="color: var(--color-fg-lightest);${
+                fontSize ? ` font-size: ${fontSize};` : ""
+              }">${renderTokenUsageValueLines(displayText)}</div>
               <div class="metric-note">Current period</div>
             </div>
           `;
         }
 
-        function renderTokenUsageCostMetric(label, value, accentColor) {
+        function renderTokenUsageCostMetric(label, value, accentColor, fontSize) {
           return `
             <div class="metric-card">
               <div class="metric-label">
                 <span class="metric-dot" style="background-color: ${accentColor};"></span>
                 <span>${escapeHtml(label)}</span>
               </div>
-              <div class="metric-value" style="color: var(--color-fg-lightest);">${renderTokenUsageValueLines(
-                value
-              )}</div>
+              <div class="metric-value" style="color: var(--color-fg-lightest);${
+                fontSize ? ` font-size: ${fontSize};` : ""
+              }">${renderTokenUsageValueLines(value)}</div>
               <div class="metric-note">Estimated total</div>
             </div>
           `;

@@ -3,6 +3,7 @@ import type { Context } from "hono"
 import type { ResolvedProviderConfig } from "~/lib/config"
 import { createHandlerLogger, debugJson } from "~/lib/logger"
 import { resolveProviderConfig } from "~/lib/provider-resolver"
+import type { CodexModelsResponse } from "~/routes/models/codex-models-types"
 import { forwardCodexModels } from "~/services/codex/get-models"
 import { createProviderProxyResponse } from "~/services/providers/provider-proxy"
 
@@ -15,10 +16,10 @@ export function isCodexUserAgent(userAgent: string | undefined): boolean {
 
 async function logCodexModelsResponse(response: Response): Promise<void> {
   try {
-    const responseText = await response.clone().text()
+    const models = (await response.clone().json()) as CodexModelsResponse
     debugJson(logger, "models.codex.response", {
       statusCode: response.status,
-      models: responseText,
+      models,
     })
   } catch (error) {
     logger.warn("models.codex.response_log_error", { error })

@@ -1,3 +1,4 @@
+import consola from "consola"
 import { getGitHubApiBaseUrl, githubUserHeaders } from "~/lib/api-config"
 import { HTTPError } from "~/lib/error"
 import { state } from "~/lib/state"
@@ -13,7 +14,12 @@ export async function getGitHubUser(githubToken?: string) {
     headers: githubUserHeaders(authState),
   })
 
-  if (!response.ok) throw new HTTPError("Failed to get GitHub user", response)
+  if (!response.ok) {
+    const errorText = await response.clone().text()
+    consola.error("Failed to get Github user response body", errorText)
+
+    throw new HTTPError("Failed to get GitHub user", response)
+  }
 
   return (await response.json()) as GithubUserResponse
 }

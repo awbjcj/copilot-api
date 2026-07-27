@@ -23,7 +23,17 @@ import {
   hasNoProxyServerSwitch,
 } from './electron-proxy-config'
 import { tMain } from './i18n'
-import { readSettings, readSettingsSync } from './settings-store'
+import {
+  applyLaunchAtLogin,
+  initializeLaunchAtLogin,
+  LOGIN_ITEM_ARG,
+  wasLaunchedAtLogin,
+} from './login-item'
+import {
+  readSettings,
+  readSettingsSync,
+  setLaunchAtLoginFallback,
+} from './settings-store'
 
 const CLI_ENV_FLAGS = {
   '--api-home': 'COPILOT_API_HOME',
@@ -141,6 +151,7 @@ function getRuntimeDependencies(): Promise<RuntimeDependencies> {
 
 let tray: Tray | null = null
 let mainWindow: BrowserWindow | null = null
+let showWindowWhenReady = false
 // Track exits triggered by menu or system actions instead of the close button
 let isQuitting = false
 
@@ -172,6 +183,9 @@ function showWindow(win: BrowserWindow): void {
   // Restore the Dock icon before showing the window on macOS.
   if (process.platform === 'darwin') {
     void app.dock?.show()
+  }
+  if (win.isMinimized()) {
+    win.restore()
   }
   win.show()
   win.focus()
@@ -235,7 +249,7 @@ function destroyTray(): void {
   }
 }
 
-function createWindow(): BrowserWindow {
+function createWindow(startHidden = false): BrowserWindow {
   const win = new BrowserWindow({
     width: 1000,
     height: 650,
@@ -255,9 +269,14 @@ function createWindow(): BrowserWindow {
   win.removeMenu()
 
   mainWindow = win
-  win.maximize()
+  if (startHidden) win.once('show', () => win.maximize())
+  else win.maximize()
 
-  win.once('ready-to-show', () => win.show())
+  win.once('ready-to-show', () => {
+    if (!startHidden) {
+      win.show()
+    }
+  })
 
   win.on('closed', () => {
     if (mainWindow === win) {
@@ -308,17 +327,33 @@ function createWindow(): BrowserWindow {
   return win
 }
 
-void app.whenReady().then(async () => {
+async function initializeApplication(): Promise<void> {
+  try {
+    setLaunchAtLoginFallback(await initializeLaunchAtLogin(app))
+  } catch (error) {
+    console.error('Failed to read launch-at-login setting:', error)
+  }
+
   const { registerIpcHandlers, readSettings, onStatusChange, onLog } =
     await getRuntimeDependencies()
   const settings = await readSettings()
   await applyElectronProxy(getEffectiveProxySettings(settings))
 
-  const win = createWindow()
+  const launchedAtLogin = wasLaunchedAtLogin(app)
+
+  const startHidden =
+    settings.minimizeToTray && launchedAtLogin && !showWindowWhenReady
+  showWindowWhenReady = false
+  const win = createWindow(startHidden)
 
   registerIpcHandlers(win, {
     getEffectiveProxySettings,
     onQuit: quitApplication,
+    onBeforeSettingsSave: async (settings, prevSettings) => {
+      if (settings.launchAtLogin !== prevSettings.launchAtLogin) {
+        await applyLaunchAtLogin(app, settings)
+      }
+    },
     onSettingsChange: async (settings, prevSettings) => {
       await applyElectronProxy(getEffectiveProxySettings(settings))
 
@@ -351,6 +386,9 @@ void app.whenReady().then(async () => {
   // Only create the tray when minimize-to-tray is enabled.
   if (settings.minimizeToTray) {
     await createTray(win)
+    if (startHidden && process.platform === 'darwin') {
+      app.dock?.hide()
+    }
   }
 
   onStatusChange((status) => {
@@ -372,15 +410,31 @@ void app.whenReady().then(async () => {
       showWindow(mainWindow)
     }
   })
-})
+}
 
-app.on('before-quit', async () => {
-  isQuitting = true
-  const { stopServer } = await getRuntimeDependencies()
-  await stopServer()
-})
+if (app.requestSingleInstanceLock()) {
+  app.on('second-instance', (_event, argv) => {
+    if (argv.includes(LOGIN_ITEM_ARG)) return
 
-// This will not fire in the macOS tray flow because the close event is intercepted.
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
-})
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      showWindow(mainWindow)
+    } else {
+      showWindowWhenReady = true
+    }
+  })
+
+  void app.whenReady().then(initializeApplication)
+
+  app.on('before-quit', async () => {
+    isQuitting = true
+    const { stopServer } = await getRuntimeDependencies()
+    await stopServer()
+  })
+
+  // This will not fire in the macOS tray flow because the close event is intercepted.
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') app.quit()
+  })
+} else {
+  app.quit()
+}

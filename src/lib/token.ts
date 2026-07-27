@@ -18,7 +18,6 @@ import { CODEX_API_BASE_URL } from "~/services/codex/create-responses"
 import { getCopilotToken } from "~/services/github/get-copilot-token"
 import { getCopilotUsage } from "~/services/github/get-copilot-usage"
 import { getDeviceCode } from "~/services/github/get-device-code"
-import { getGitHubUser } from "~/services/github/get-user"
 import { pollAccessToken } from "~/services/github/poll-access-token"
 
 import { HTTPError } from "./error"
@@ -334,14 +333,13 @@ export async function setupGitHubToken(
 }
 
 export async function logUser() {
-  const user = await getGitHubUser()
-  state.userName = user.login
-  consola.info(`Logged in as ${user.login}`)
-
   const copilotUser = await getCopilotUsage()
   if (!copilotUser) {
     throw new Error("GitHub token not found")
   }
+
+  state.userName = copilotUser.login
+  consola.info(`Logged in as ${copilotUser.login}`)
 
   state.copilotApiUrl = copilotUser.endpoints.api
   state.tokenBasedBilling = copilotUser.token_based_billing

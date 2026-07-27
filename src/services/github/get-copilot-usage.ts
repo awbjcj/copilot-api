@@ -1,3 +1,4 @@
+import consola from "consola"
 import { getGitHubApiBaseUrl, githubHeaders } from "~/lib/api-config"
 import { HTTPError } from "~/lib/error"
 import { state } from "~/lib/state"
@@ -21,6 +22,9 @@ export const getCopilotUsage = async (
   )
 
   if (!response.ok) {
+    const errorText = await response.clone().text()
+    consola.error("Failed to get Copilot user response body", errorText)
+
     throw new HTTPError("Failed to get Copilot usage", response)
   }
 

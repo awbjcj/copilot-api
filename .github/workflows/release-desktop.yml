@@ -85,10 +85,45 @@ jobs:
             desktop/release/*.msi
           if-no-files-found: warn
 
+  # ─── Linux (x64) ────────────────────────────────────────────────────────
+  build-linux-x64:
+    name: Build Linux (x64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install root dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build server
+        run: bun run build
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.13.0"
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: bun install --frozen-lockfile
+
+      - name: Build Linux x64 package
+        working-directory: desktop
+        run: bun run package:linux -- --x64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-x64
+          path: desktop/release/*.AppImage
+          if-no-files-found: error
+
   # ─── Upload all artifacts to the GitHub Release ──────────────────────────
   release-upload:
     name: Upload to Release
-    needs: [ build-mac-arm64, build-win ]
+    needs: [ build-mac-arm64, build-win, build-linux-x64 ]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

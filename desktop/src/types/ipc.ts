@@ -170,6 +170,8 @@ export interface DesktopSettings {
   oauthApp: 'default' | 'opencode'
   enterpriseUrl: string
   lastPort: number
+  launchAtLogin: boolean
+  autoStartServer: boolean
   minimizeToTray: boolean
   accountType: 'individual' | 'business' | 'enterprise'
   verbose: boolean
