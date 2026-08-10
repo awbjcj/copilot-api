@@ -3,9 +3,9 @@ import type { Context } from "hono"
 import { expect, test } from "bun:test"
 import { createHash, randomUUID } from "node:crypto"
 
-import type { AnthropicMessagesPayload } from "~/routes/messages/anthropic-types"
+import type { AnthropicMessagesPayload } from "~/lib/types/anthropic"
 
-import { getRootSessionId, getUUID } from "../src/lib/utils"
+import { getRootSessionId, getUUID } from "~/lib/utils"
 
 const jsonStyleUserId = JSON.stringify({
   device_id: "3f4a1b7c8d9e0f1234567890abcdef1234567890abcdef1234567890abcdef12",

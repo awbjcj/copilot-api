@@ -1,10 +1,9 @@
 import {
   fetch as undiciFetch,
-  getGlobalDispatcher,
-  type Dispatcher,
   type RequestInit as UndiciRequestInit,
 } from "undici"
 
+import { createTimeoutDispatcher } from "~/lib/timeout-dispatcher"
 import {
   buildCodexRequestHeaders,
   CODEX_API_BASE_URL,
@@ -14,21 +13,7 @@ export type CodexImagesOperation = "generations" | "edits"
 
 const CODEX_IMAGES_TIMEOUT_MS = 15 * 60 * 1000
 
-const codexImagesDispatcher = {
-  dispatch(
-    options: Dispatcher.DispatchOptions,
-    handler: Dispatcher.DispatchHandler,
-  ) {
-    return getGlobalDispatcher().dispatch(
-      {
-        ...options,
-        bodyTimeout: CODEX_IMAGES_TIMEOUT_MS,
-        headersTimeout: CODEX_IMAGES_TIMEOUT_MS,
-      },
-      handler,
-    )
-  },
-} as Dispatcher
+const codexImagesDispatcher = createTimeoutDispatcher(CODEX_IMAGES_TIMEOUT_MS)
 
 type StreamingRequestInit = RequestInit & {
   duplex: "half"

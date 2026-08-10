@@ -5,7 +5,7 @@ import {
   type ResolvedProviderConfig,
 } from "~/lib/config"
 
-import { buildProviderUpstreamHeaders } from "../src/services/providers/provider-proxy"
+import { buildProviderUpstreamHeaders } from "~/services/providers/provider-proxy"
 
 function createProviderConfig(
   overrides: Partial<ResolvedProviderConfig> = {},

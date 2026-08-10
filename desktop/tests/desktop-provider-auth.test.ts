@@ -154,6 +154,35 @@ describe('desktop provider auth', () => {
     })
   })
 
+  test('configures kimi with a fixed openai-compatible provider type', () => {
+    let writtenProviderConfig: ProviderConfig | undefined
+
+    configureDesktopProvider(
+      {
+        apiKey: 'kimi-key',
+        baseUrl: 'https://kimi.example/coding///',
+        provider: 'kimi',
+        type: 'anthropic',
+      },
+      {
+        getEnabledProviders: () => ['kimi'],
+        getRawProviderConfig: () => null,
+        setProviderConfig(_name, provider) {
+          writtenProviderConfig = provider
+          return provider
+        },
+      },
+    )
+
+    expect(writtenProviderConfig).toEqual({
+      apiKey: 'kimi-key',
+      baseUrl: 'https://kimi.example/coding',
+      enabled: true,
+      pricingCurrency: 'USD',
+      type: 'openai-compatible',
+    })
+  })
+
   test('rejects invalid provider input before writing config', () => {
     let writes = 0
     const dependencies = {

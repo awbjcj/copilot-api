@@ -1,15 +1,14 @@
 import consola from "consola"
 import {
   fetch as undiciFetch,
-  getGlobalDispatcher,
-  type Dispatcher,
   type RequestInit as UndiciRequestInit,
 } from "undici"
 
 import type { ResolvedProviderConfig } from "~/lib/config"
-import type { AnthropicMessagesPayload } from "~/routes/messages/anthropic-types"
-import type { ChatCompletionsPayload } from "~/services/copilot/create-chat-completions"
-import type { ResponsesPayload } from "~/services/copilot/create-responses"
+import { createTimeoutDispatcher } from "~/lib/timeout-dispatcher"
+import type { AnthropicMessagesPayload } from "~/lib/types/anthropic"
+import type { ChatCompletionsPayload } from "~/lib/types/chat-completions"
+import type { ResponsesPayload } from "~/lib/types/responses"
 
 const SHARED_FORWARDABLE_HEADERS = ["accept", "user-agent"] as const
 
@@ -125,6 +124,8 @@ export async function forwardProviderResponses(
   })
 }
 
+const PROVIDER_MODELS_TIMEOUT_MS = 15_000
+
 export async function forwardProviderModels(
   providerConfig: ResolvedProviderConfig,
   requestHeaders: Headers,
@@ -132,27 +133,16 @@ export async function forwardProviderModels(
   return await fetch(`${providerConfig.baseUrl}/v1/models`, {
     method: "GET",
     headers: buildProviderUpstreamHeaders(providerConfig, requestHeaders),
+    signal: AbortSignal.timeout(PROVIDER_MODELS_TIMEOUT_MS),
   })
 }
 
 /** Align with Codex images: long-running generation/edits need a generous cap. */
 const PROVIDER_IMAGES_TIMEOUT_MS = 15 * 60 * 1000
 
-const providerImagesDispatcher = {
-  dispatch(
-    options: Dispatcher.DispatchOptions,
-    handler: Dispatcher.DispatchHandler,
-  ) {
-    return getGlobalDispatcher().dispatch(
-      {
-        ...options,
-        bodyTimeout: PROVIDER_IMAGES_TIMEOUT_MS,
-        headersTimeout: PROVIDER_IMAGES_TIMEOUT_MS,
-      },
-      handler,
-    )
-  },
-} as Dispatcher
+const providerImagesDispatcher = createTimeoutDispatcher(
+  PROVIDER_IMAGES_TIMEOUT_MS,
+)
 
 function resolveProviderRequestUrl(
   providerConfig: ResolvedProviderConfig,

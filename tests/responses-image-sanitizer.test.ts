@@ -4,7 +4,7 @@ import type {
   ResponseFunctionCallOutputItem,
   ResponseInputImage,
   ResponsesPayload,
-} from "~/services/copilot/create-responses"
+} from "~/lib/types/responses"
 
 import {
   sanitizeAllInputImages,

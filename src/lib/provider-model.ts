@@ -1,4 +1,4 @@
-import type { Model } from "~/services/copilot/get-models"
+import type { Model } from "~/lib/types/models"
 
 export interface ProviderModelAlias {
   model: string

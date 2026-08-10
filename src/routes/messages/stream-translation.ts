@@ -2,13 +2,13 @@ import {
   type ChatCompletionChunk,
   type Choice,
   type Delta,
-} from "~/services/copilot/create-chat-completions"
+} from "~/lib/types/chat-completions"
 
 import {
   type AnthropicMessageDeltaEvent,
   type AnthropicStreamEventData,
   type AnthropicStreamState,
-} from "./anthropic-types"
+} from "~/lib/types/anthropic"
 import { THINKING_TEXT } from "./non-stream-translation"
 import { mapOpenAIStopReasonToAnthropic } from "./utils"
 

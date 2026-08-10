@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, mock, test } from "bun:test"
 
-import type { ResponsesResult } from "../src/services/copilot/create-responses"
+import type { ResponsesResult } from "~/lib/types/responses"
 
 type ListenerEvent = {
   data?: string
@@ -130,9 +130,9 @@ await mock.module("undici", () => ({
   WebSocket: MockWebSocket,
 }))
 
-const { state } = await import("../src/lib/state")
+const { state } = await import("~/lib/state")
 const { forwardCodexResponses } = await import(
-  "../src/services/codex/create-responses"
+  "~/services/codex/create-responses"
 )
 
 const originalState = {

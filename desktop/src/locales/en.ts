@@ -15,6 +15,7 @@ const en: Locale = {
     providerDashscope: 'DashScope',
     providerDeepseek: 'DeepSeek',
     providerInvalid: 'Invalid provider configuration, please try again',
+    providerKimi: 'Kimi',
     providerName: 'Provider name',
     providerOpencodeGo: 'OpenCode Go',
     providerOpenrouter: 'OpenRouter',

@@ -7,24 +7,29 @@ import {
   resolveMappedModel,
 } from "~/lib/config"
 import { createHandlerLogger, debugJson, debugJsonTail } from "~/lib/logger"
+import { findEndpointModel } from "~/lib/models"
 import { parseProviderModelAlias } from "~/lib/provider-model"
 import { handleProviderResponsesForProvider } from "~/routes/provider/responses/handler"
-import { state } from "~/lib/state"
 import {
   createCopilotTokenUsageRecorder,
   normalizeOptionalToken,
   normalizeResponsesUsage,
   type UsageTokens,
 } from "~/lib/token-usage"
-import { generateRequestIdFromPayload, getUUID } from "~/lib/utils"
-import type { SubagentMarker } from "~/lib/subagent"
 import {
-  createResponses as createCopilotResponses,
-  type ResponsesPayload,
-  type ResponsesResult,
-  type ResponseStreamEvent,
-} from "~/services/copilot/create-responses"
+  generateRequestIdFromPayload,
+  getUUID,
+  isAsyncIterable,
+} from "~/lib/utils"
+import type { SubagentMarker } from "~/lib/subagent"
+import type {
+  ResponsesPayload,
+  ResponsesResult,
+  ResponseStreamEvent,
+} from "~/lib/types/responses"
+import { createResponses as createCopilotResponses } from "~/services/copilot/create-responses"
 
+import { handleResponsesViaMessages } from "./messages-handler"
 import { createStreamIdTracker, fixStreamIds } from "./stream-id-sync"
 import {
   applyResponsesApiContextManagement,
@@ -39,13 +44,15 @@ const logger = createHandlerLogger("responses-handler")
 
 export const responsesHandlerDependencies = {
   createResponses: createCopilotResponses,
+  findEndpointModel,
   isResponsesApiWebSearchEnabled: isConfiguredResponsesApiWebSearchEnabled,
+  resolveMappedModel,
 }
 
 export const handleResponses = async (c: Context) => {
   const payload = await c.req.json<ResponsesPayload>()
   const requestedModel = payload.model
-  payload.model = resolveMappedModel(payload.model)
+  payload.model = responsesHandlerDependencies.resolveMappedModel(payload.model)
   if (payload.model !== requestedModel) {
     consola.debug(
       `Resolved model mapping: ${requestedModel} -> ${payload.model}`,
@@ -58,6 +65,7 @@ export const handleResponses = async (c: Context) => {
     return await handleProviderResponsesForProvider(c, {
       payload,
       provider: providerModelAlias.provider,
+      publicModel: requestedModel,
     })
   }
 
@@ -78,24 +86,25 @@ export const handleResponses = async (c: Context) => {
 
   const fallbackSessionId = sessionId ?? getUUID(requestId)
   logger.debug("Extracted session ID:", fallbackSessionId)
-  const recordUsage = createCopilotTokenUsageRecorder({
-    endpoint: "responses",
-    fallbackSessionId,
-    model: payload.model,
-  })
-
-  removeUnsupportedTools(payload)
-
-  if (!responsesHandlerDependencies.isResponsesApiWebSearchEnabled()) {
-    removeWebSearchTool(payload)
-  }
-
-  const selectedModel = state.models?.data.find(
-    (model) => model.id === payload.model,
+  const selectedModel = responsesHandlerDependencies.findEndpointModel(
+    payload.model,
   )
+  payload.model = selectedModel?.id ?? payload.model
   const responsesTransport = getResponsesTransportForModel(selectedModel)
 
   if (!responsesTransport) {
+    const supportedEndpoints = selectedModel?.supported_endpoints ?? []
+    if (
+      supportedEndpoints.includes("/v1/messages")
+      || supportedEndpoints.includes("/chat/completions")
+    ) {
+      return await handleResponsesViaMessages(c, {
+        payload,
+        publicModel: requestedModel,
+        targetModel: payload.model,
+      })
+    }
+
     return c.json(
       {
         error: {
@@ -106,6 +115,18 @@ export const handleResponses = async (c: Context) => {
       },
       400,
     )
+  }
+
+  const recordUsage = createCopilotTokenUsageRecorder({
+    endpoint: "responses",
+    fallbackSessionId,
+    model: payload.model,
+  })
+
+  removeUnsupportedTools(payload)
+
+  if (!responsesHandlerDependencies.isResponsesApiWebSearchEnabled()) {
+    removeWebSearchTool(payload)
   }
 
   const sanitizedImageCount = sanitizeOversizedInputImages(
@@ -199,10 +220,6 @@ export const handleResponses = async (c: Context) => {
   })
   return c.json(result)
 }
-
-const isAsyncIterable = <T>(value: unknown): value is AsyncIterable<T> =>
-  Boolean(value)
-  && typeof (value as AsyncIterable<T>)[Symbol.asyncIterator] === "function"
 
 const isStreamingRequested = (payload: ResponsesPayload): boolean =>
   Boolean(payload.stream)

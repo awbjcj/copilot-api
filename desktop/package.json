@@ -1,6 +1,6 @@
 {
   "name": "copilot-api-desktop",
-  "version": "1.14.17",
+  "version": "2.0.2",
   "description": "Copilot API Desktop App",
   "author": "jeffreycao",
   "desktopName": "copilot-api.desktop",
@@ -10,6 +10,7 @@
     "build": "electron-vite build",
     "build:server": "bun run --cwd .. build:desktop",
     "test": "bun test tests",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "preview": "electron-vite preview",
     "gen-icons": "rsvg-convert -w 1024 -h 1024 assets/tray-icon-colored.svg -o assets/icon.png",
     "lint": "eslint --cache .",

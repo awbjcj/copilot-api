@@ -19,6 +19,7 @@ import {
   type TokenUsageEventsPage,
   type TokenUsageSummary,
 } from "~/lib/token-usage"
+import { resolveTokenUsageCost } from "~/lib/token-usage/pricing"
 import { traceIdMiddleware } from "~/lib/trace"
 import { tokenUsageRoute } from "~/routes/token-usage/route"
 
@@ -243,8 +244,8 @@ describe("token usage storage", () => {
   test("calculates built-in Codex GPT-5.6 prices with cached input discount", async () => {
     const expectedCosts = [
       { model: "gpt-5.6-sol", totalCostNanos: 96_000_000 },
-      { model: "gpt-5.6-terra", totalCostNanos: 48_000_000 },
-      { model: "gpt-5.6-luna", totalCostNanos: 19_200_000 },
+      { model: "gpt-5.6-terra", totalCostNanos: 38_400_000 },
+      { model: "gpt-5.6-luna", totalCostNanos: 3_840_000 },
     ]
 
     for (const { model } of expectedCosts) {
@@ -278,11 +279,200 @@ describe("token usage storage", () => {
     const summary = (await response.json()) as TokenUsageSummary
     expect(summary.totals.costs).toEqual([
       {
-        amount: 0.1632,
+        amount: 0.13824,
         currency: "USD",
-        total_cost_nanos: 163_200_000,
+        total_cost_nanos: 138_240_000,
       },
     ])
+  })
+
+  test("records provider-reported cost before configured pricing", async () => {
+    recordTokenUsageEvent({
+      cost: 0.0002928408,
+      endpoint: "provider_messages",
+      input_tokens: 853,
+      model: "claude-sonnet-4",
+      output_tokens: 284,
+      pricing: {
+        input: 100,
+        output: 100,
+      },
+      pricingCurrency: "USD",
+      providerName: "openrouter",
+      source: "provider",
+    })
+
+    const page = await fetchEventsPage()
+    expect(page.items[0]?.cost).toEqual({
+      amount: 0.000292841,
+      currency: "USD",
+      source: "upstream",
+      total_cost_nanos: 292_841,
+    })
+  })
+
+  test("does not use provider-reported cost for non-OpenRouter providers", () => {
+    expect(
+      resolveTokenUsageCost({
+        cost: 0.0002928408,
+        input_tokens: 10,
+        model: "custom-model",
+        output_tokens: 5,
+        pricing: {
+          input: 1,
+          output: 2,
+        },
+        pricingCurrency: "USD",
+        providerName: "anthropic",
+        source: "provider",
+      }),
+    ).toEqual({
+      currency: "USD",
+      source: "config",
+      total_cost_nanos: 20_000,
+    })
+  })
+
+  test("uses GPT-5.6 Terra and Luna long-context and cache-write prices", () => {
+    const expectedCosts = [
+      { model: "gpt-5.6-terra", totalCostNanos: 1_140_800_000 },
+      { model: "gpt-5.6-luna", totalCostNanos: 114_080_000 },
+    ]
+
+    for (const { model, totalCostNanos } of expectedCosts) {
+      expect(
+        resolveTokenUsageCost({
+          cache_creation_input_tokens: 2_000,
+          cache_read_input_tokens: 2_000,
+          input_tokens: 269_000,
+          model,
+          output_tokens: 3_000,
+          providerName: "codex",
+          source: "provider",
+        }),
+      ).toEqual({
+        currency: "USD",
+        source: "builtin",
+        total_cost_nanos: totalCostNanos,
+      })
+    }
+  })
+
+  test("prices OpenCode Go Hy3 and GPT-5.6 Luna with long-context tiers", () => {
+    const shortContextCosts = [
+      { model: "hy3", totalCostNanos: 1_950_000 },
+      { model: "gpt-5.6-luna", totalCostNanos: 2_045_000 },
+      { model: "qwen3.8-max", totalCostNanos: 23_000_000 },
+    ]
+
+    for (const { model, totalCostNanos } of shortContextCosts) {
+      expect(
+        resolveTokenUsageCost({
+          cache_creation_input_tokens: 1_000,
+          cache_read_input_tokens: 2_000,
+          input_tokens: 1_000,
+          model,
+          output_tokens: 3_000,
+          providerName: "opencode-go",
+          source: "provider",
+        }),
+      ).toEqual({
+        currency: "USD",
+        source: "builtin",
+        total_cost_nanos: totalCostNanos,
+      })
+    }
+
+    expect(
+      resolveTokenUsageCost({
+        cache_creation_input_tokens: 2_000,
+        cache_read_input_tokens: 2_000,
+        input_tokens: 269_000,
+        model: "gpt-5.6-luna",
+        output_tokens: 3_000,
+        providerName: "opencode-go",
+        source: "provider",
+      }),
+    ).toEqual({
+      currency: "USD",
+      source: "builtin",
+      total_cost_nanos: 57_040_000,
+    })
+  })
+
+  test("prices DashScope Qwen3.8 Max with explicit cache prices", () => {
+    expect(
+      resolveTokenUsageCost({
+        cache_creation_input_tokens: 1_000,
+        cache_read_input_tokens: 2_000,
+        input_tokens: 1_000,
+        model: "qwen3.8-max",
+        output_tokens: 3_000,
+        providerName: "dashscope",
+        source: "provider",
+      }),
+    ).toEqual({
+      currency: "CNY",
+      source: "builtin",
+      total_cost_nanos: 137_000_000,
+    })
+  })
+
+  test("prices DashScope DeepSeek V4 Flash 0731 with cached input", () => {
+    expect(
+      resolveTokenUsageCost({
+        cache_read_input_tokens: 2_000,
+        input_tokens: 1_000,
+        model: "deepseek-v4-flash-0731",
+        output_tokens: 3_000,
+        providerName: "dashscope",
+        source: "provider",
+      }),
+    ).toEqual({
+      currency: "CNY",
+      source: "builtin",
+      total_cost_nanos: 7_400_000,
+    })
+  })
+
+  test("prices Kimi models in USD and DashScope Kimi in CNY", () => {
+    const expectedCosts = [
+      {
+        currency: "USD",
+        model: "k3",
+        providerName: "kimi",
+        totalCostNanos: 48_600_000,
+      },
+      {
+        currency: "USD",
+        model: "k3-256k",
+        providerName: "kimi",
+        totalCostNanos: 48_600_000,
+      },
+      {
+        currency: "CNY",
+        model: "kimi/kimi-k3",
+        providerName: "dashscope",
+        totalCostNanos: 324_000_000,
+      },
+    ]
+
+    for (const expected of expectedCosts) {
+      expect(
+        resolveTokenUsageCost({
+          cache_read_input_tokens: 2_000,
+          input_tokens: 1_000,
+          model: expected.model,
+          output_tokens: 3_000,
+          providerName: expected.providerName,
+          source: "provider",
+        }),
+      ).toEqual({
+        currency: expected.currency,
+        source: "builtin",
+        total_cost_nanos: expected.totalCostNanos,
+      })
+    }
   })
 
   test("only falls back to interaction id when no real session id exists", async () => {

@@ -17,7 +17,7 @@ import type {
   ResponseOutputItemAddedEvent,
   ResponseOutputItemDoneEvent,
   ResponseStreamEvent,
-} from "~/services/copilot/create-responses"
+} from "~/lib/types/responses"
 
 interface StreamIdTracker {
   outputItems: Map<number, string>

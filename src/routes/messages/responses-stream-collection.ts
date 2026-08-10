@@ -5,7 +5,7 @@ import type {
   ResponseStreamEvent,
   ResponsesResult,
   ResponsesStream,
-} from "~/services/copilot/create-responses"
+} from "~/lib/types/responses"
 
 import { debugJson } from "~/lib/logger"
 

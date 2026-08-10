@@ -8,11 +8,10 @@ import type {
   ResponseInputItem,
   ResponseInputMessage,
   ResponsesPayload,
-  ResponseErrorEvent,
   ResponsesResult,
   ResponsesStream,
   ResponsesTransport,
-} from "~/services/copilot/create-responses"
+} from "~/lib/types/responses"
 
 import { isResponsesApiWebSocketEnabled as isConfiguredResponsesApiWebSocketEnabled } from "~/lib/config"
 import { HTTPError } from "~/lib/error"
@@ -22,6 +21,11 @@ import {
   createWebSocketUrl,
   type PooledWebSocketRequest,
 } from "~/services/responses-websocket"
+import {
+  createResponsesSafeStream,
+  encodePoolKeyPart,
+  isTerminalResponsesStreamChunk,
+} from "~/services/responses-websocket-helpers"
 import { requestContext } from "~/lib/request-context"
 import consola from "consola"
 
@@ -442,26 +446,16 @@ const forwardCodexResponsesOverWebSocket = (
 const createCodexResponsesWebSocketStream = (
   request: CodexResponsesWebSocketRequest,
 ): ResponsesStream =>
-  createCodexResponsesSafeStream(
+  createResponsesSafeStream(
     createPooledWebSocketStream(request, {
       createChunk: createCodexResponsesWebSocketStreamChunk,
-      isTerminalChunk: isTerminalCodexResponsesWebSocketChunk,
+      isTerminalChunk: isTerminalResponsesStreamChunk,
       openErrorMessage: "Failed to create codex responses websocket",
       streamErrorMessage: "Codex responses websocket stream error",
       terminalChunkMissingMessage:
         "Codex responses websocket ended without a terminal response",
     }),
   )
-
-const createCodexResponsesSafeStream = async function* (
-  source: AsyncIterable<ServerSentEventChunk>,
-): AsyncGenerator<ServerSentEventChunk, void, unknown> {
-  try {
-    yield* source
-  } catch (error) {
-    yield createResponsesErrorServerSentEventChunk(getErrorMessage(error))
-  }
-}
 
 const createCodexResponsesWebSocketStreamChunk = (
   data: string,
@@ -494,50 +488,3 @@ const createCodexResponsesWebSocketStreamChunk = (
     return { data }
   }
 }
-
-const isTerminalCodexResponsesWebSocketChunk = (
-  chunk: ServerSentEventChunk,
-): boolean => {
-  if (!chunk.data || chunk.data === "[DONE]") {
-    return false
-  }
-
-  try {
-    const parsed = JSON.parse(chunk.data) as { type?: unknown }
-    return (
-      parsed.type === "response.completed"
-      || parsed.type === "response.failed"
-      || parsed.type === "response.incomplete"
-      || parsed.type === "error"
-    )
-  } catch {
-    return false
-  }
-}
-
-const createResponsesErrorServerSentEventChunk = (
-  message: string,
-): ServerSentEventChunk => {
-  const errorEvent: ResponseErrorEvent = {
-    code: null,
-    message,
-    param: null,
-    sequence_number: 0,
-    type: "error",
-  }
-
-  return {
-    event: errorEvent.type,
-    data: JSON.stringify(errorEvent),
-  }
-}
-
-const getErrorMessage = (error: unknown): string => {
-  if (error instanceof Error && error.message) {
-    return error.message
-  }
-
-  return String(error)
-}
-
-const encodePoolKeyPart = (value: string): string => encodeURIComponent(value)

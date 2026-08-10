@@ -1,17 +1,77 @@
 # Copilot API Proxy
 
+<p align="center">
+  <a href="https://www.npmjs.com/package/@jeffreycao/copilot-api"><img src="https://img.shields.io/npm/v/@jeffreycao/copilot-api.svg" alt="npm version"></a>
+  <a href="https://github.com/caozhiyuan/copilot-api/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
+  <a href="https://github.com/caozhiyuan/copilot-api/stargazers"><img src="https://img.shields.io/github/stars/caozhiyuan/copilot-api.svg" alt="GitHub stars"></a>
+  <a href="https://bun.sh"><img src="https://img.shields.io/badge/Bun-%3E%3D1.2.x-orange.svg" alt="Bun >= 1.2.x"></a>
+  <a href="https://nodejs.org"><img src="https://img.shields.io/badge/Node-%3E%3D22.13.0-green.svg" alt="Node >= 22.13.0"></a>
+</p>
+
 English | [简体中文](./README.zh-CN.md)
+
+## Table of Contents
+
+- [Copilot API Proxy](#copilot-api-proxy)
+  - [Table of Contents](#table-of-contents)
+  - [Important Notes](#important-notes)
+  - [Project Overview](#project-overview)
+  - [Quick Start](#quick-start)
+  - [Features](#features)
+  - [Prerequisites](#prerequisites)
+  - [Installation](#installation)
+  - [Running from Source](#running-from-source)
+    - [Development Mode](#development-mode)
+    - [Production Mode](#production-mode)
+  - [Using with npx](#using-with-npx)
+  - [Using with Docker](#using-with-docker)
+  - [Electron Desktop App](#electron-desktop-app)
+    - [Desktop App Screenshots](#desktop-app-screenshots)
+  - [Using with Claude Code](#using-with-claude-code)
+    - [Interactive Setup with `--claude-code` flag](#interactive-setup-with---claude-code-flag)
+    - [Manual Configuration with `settings.json`](#manual-configuration-with-settingsjson)
+  - [Using with OpenCode](#using-with-opencode)
+    - [Minimal setup](#minimal-setup)
+  - [Using with Codex](#using-with-codex)
+    - [Codex `config.toml` Reference](#codex-configtoml-reference)
+  - [GPT Tool Search](#gpt-tool-search)
+  - [Plugin Integrations](#plugin-integrations)
+    - [Claude Code plugin integration (marketplace-based)](#claude-code-plugin-integration-marketplace-based)
+    - [Opencode plugin](#opencode-plugin)
+  - [Using the Usage Viewer](#using-the-usage-viewer)
+    - [Usage Viewer Screenshot](#usage-viewer-screenshot)
+  - [Command Structure](#command-structure)
+  - [Command Line Options](#command-line-options)
+    - [Global Options](#global-options)
+    - [Start Command Options](#start-command-options)
+    - [Auth Command Options](#auth-command-options)
+    - [Debug Command Options](#debug-command-options)
+  - [Configuration (config.json)](#configuration-configjson)
+  - [API Authentication](#api-authentication)
+  - [API Endpoints](#api-endpoints)
+    - [OpenAI Compatible Endpoints](#openai-compatible-endpoints)
+    - [Codex Backend Proxy Endpoints](#codex-backend-proxy-endpoints)
+    - [Anthropic Compatible Endpoints](#anthropic-compatible-endpoints)
+    - [Usage Monitoring Endpoints](#usage-monitoring-endpoints)
+    - [Admin / Configuration Endpoints](#admin--configuration-endpoints)
+  - [Example Usage](#example-usage)
+  - [Usage Tips](#usage-tips)
+    - [CLAUDE.md or AGENTS.md Recommended Content](#claudemd-or-agentsmd-recommended-content)
 
 ## Important Notes
 
 > [!IMPORTANT]
 > **Before using, please be aware of the following:**
 >
-> 1. **Claude Code configuration:** When using with Claude Code, please configure the model ID as `claude-opus-4-8`. Example claude `settings.json` see [Manual Configuration with `settings.json`](#manual-configuration-with-settingsjson). 
+> 1. **Claude Code configuration:** When using with Claude Code, please configure the model ID as `claude-opus-4-8[1m]`. Example claude `settings.json` see [Manual Configuration with `settings.json`](#manual-configuration-with-settingsjson). 
 >
-> 2. **Built-in `copilot`, `codex` and third-party providers:** Run `npx @jeffreycao/copilot-api@latest auth` and choose `copilot`, `codex`, `deepseek`, `custom`, or other providers.
+> 2. **Codex configuration:** When using with Codex, add the gateway provider to `~/.codex/config.toml`. See [Codex `config.toml` Reference](#codex-configtoml-reference).
 >
-> 3. **Note:** See [GitHub Copilot Security Notice](./NOTICE.md#github-copilot-security-notice) for the warning removed from the README header.
+> 3. **OpenCode configuration:** When using with OpenCode, configure `~/.config/opencode/opencode.json` with `@ai-sdk/anthropic`. See [Using with OpenCode](#using-with-opencode).
+>
+> 4. **Built-in `copilot`, `codex` and third-party providers:** Run `npx @jeffreycao/copilot-api@latest auth` and choose `copilot`, `codex`, `deepseek`, `custom`, or other providers.
+>
+> 5. **Note:** See [GitHub Copilot Security Notice](./NOTICE.md#github-copilot-security-notice) for the warning removed from the README header.
 
 ---
 
@@ -22,6 +82,31 @@ A small AI gateway that can use GitHub Copilot, the built-in `codex` provider, o
 The gateway exposes OpenAI- and Anthropic-compatible APIs from one local endpoint, so tools like [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview), OpenCode, Codex, and OpenAI-compatible clients can share the same local server.
 
 On the GitHub Copilot path, the gateway prefers Copilot's native Anthropic-style Messages API when available, preserving more Claude-native behavior for tool-heavy workflows.
+
+## Quick Start
+
+The fastest way to get a working gateway:
+
+```sh
+npx @jeffreycao/copilot-api@latest start
+```
+
+The server listens on `http://localhost:4141` by default. Optionally authenticate with GitHub Copilot or configure a third-party provider first:
+
+```sh
+npx @jeffreycao/copilot-api@latest auth login
+```
+
+Verify the gateway is up:
+
+```sh
+curl http://localhost:4141/v1/models
+```
+
+> [!NOTE]
+> Token usage storage requires Node.js >= 22.13.0 or Bun. See [Using with npx](#using-with-npx) for details.
+
+From here, jump to the guide for your client: [Claude Code](#using-with-claude-code), [OpenCode](#using-with-opencode), [Codex](#using-with-codex), or run it with [Docker](#using-with-docker).
 
 ## Features
 
@@ -50,12 +135,6 @@ To install dependencies, run:
 bun install
 ```
 
-To start the server directly from source:
-
-```sh
-bun run start start
-```
-
 ## Running from Source
 
 The project can be run from source in several ways:
@@ -71,6 +150,8 @@ bun run dev start
 ```sh
 bun run start start
 ```
+
+> The trailing `start` is the CLI subcommand passed to `src/main.ts`, not a typo: `bun run dev start` runs watch mode, `bun run start start` runs production.
 
 ## Using with npx
 
@@ -129,7 +210,7 @@ docker run -p 4141:4141 -e GH_TOKEN=your_github_token_here copilot-api
 
 ## Electron Desktop App
 
-If you prefer a GUI, this repository also includes an Electron desktop app in `desktop/`. It supports GitHub Copilot sign-in, OpenAI Codex OAuth, and API-key configuration for DeepSeek, DashScope, OpenRouter, or a custom provider. After authorization or provider configuration, it can start and stop the local proxy with one click and shows the local endpoint, auth header, available models, usage, and logs in the app.
+If you prefer a GUI, this repository also includes an Electron desktop app in `desktop/`. It supports GitHub Copilot sign-in, OpenAI Codex OAuth, and API-key configuration for Kimi, DeepSeek, DashScope, OpenRouter, or a custom provider. After authorization or provider configuration, it can start and stop the local proxy with one click and shows the local endpoint, auth header, available models, usage, and logs in the app.
 
 The settings screen also exposes `OAuth App`, `API Home`, `Enterprise URL`, verbose logging, and minimize-to-tray. Windows x64 (`.exe`), macOS Apple Silicon (`.dmg`), and Linux x64 (`.AppImage`) packages are published in GitHub Releases:
 
@@ -185,6 +266,7 @@ Here is an example `.claude/settings.json` file:
     "ANTHROPIC_BASE_URL": "http://localhost:4141",
     "ANTHROPIC_AUTH_TOKEN": "dummy",
     "ANTHROPIC_MODEL": "gpt-5.6-sol[1m]",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "gpt-5.6-sol[1m]",
     "ANTHROPIC_DEFAULT_SONNET_MODEL": "gpt-5.6-sol[1m]",
     "ANTHROPIC_DEFAULT_HAIKU_MODEL": "gpt-5.6-luna[1m]",
     "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "272000",
@@ -306,6 +388,7 @@ model_provider = "copilot_api"
 model_reasoning_summary = "auto"
 model_context_window = 272000
 model_auto_compact_token_limit = 244800
+web_search = "live"
 
 [model_providers.copilot_api]
 name = "OpenAI"
@@ -318,6 +401,11 @@ request_max_retries = 3
 stream_max_retries = 1
 stream_idle_timeout_ms = 300000
 
+[features.code_mode]
+excluded_tool_namespaces = [
+    "mcp__codex_apps__sites"
+]
+
 [features]
 remote_compaction_v2 = true
 
@@ -326,8 +414,25 @@ enabled = false
 ```
 
 > [!NOTE]
-> This configuration is specific to Codex and the GitHub Copilot provider. `name` must be set to `"OpenAI"`. It can help mitigate Codex local compact cache miss issues.
-> If you are using the codex provider, it is recommended to set `base_url` to `"http://localhost:4141/codex"`.
+> `name` must be set to `"OpenAI"`.
+>
+> For models that do not support `tool_search`, we recommend disabling `mcp__codex_apps__sites` by adding it to `features.code_mode.excluded_tool_namespaces` as shown above. Otherwise, each prompt may consume more than 10,000 additional tokens.
+
+When a Codex client (`User-Agent` starts with `codex`) requests the top-level `GET /v1/models`, the gateway merges native Codex models with models available through the Messages adapter. The latter advertise `use_responses_lite: true`: `/v1/responses` uses **Responses → Messages** for Anthropic providers, while OpenAI-compatible providers and Chat-only Copilot models reuse the existing Messages route for **Responses → Messages → Chat Completions**, then translate streaming or JSON results back to Responses.
+
+Responses Lite tool definitions are read from `input.additional_tools`, without relying on top-level `tools`. Function, `namespace`, and custom tools are supported; clients must declare `apply_patch` as `type: "custom"`, and it is not handled as a standalone special tool type. Returned calls recover their original `name` and `namespace`. Tools are collected before old history is trimmed, so compaction requests retain them. The Messages fallback does not support Responses `tool_search` mode. Anthropic `output_config.effort` keeps the project's existing valid levels; Responses `minimal` maps to `low`, while `none` omits Anthropic effort.
+
+When Codex uses the top-level GitHub Copilot route with `approvals_reviewer = "auto_review"`, map its internal review model to a Responses-capable Copilot model in the gateway's `config.json`:
+
+```json
+{
+  "modelMappings": {
+    "codex-auto-review": "gpt-5.6-luna"
+  }
+}
+```
+
+This mapping only applies to the top-level GitHub Copilot route. Provider-scoped routes do not use `modelMappings`, so the built-in `/codex` provider continues to handle `codex-auto-review` natively.
 
 ## GPT Tool Search
 
@@ -374,7 +479,7 @@ The bridge uses direct tool selection, not query search. Its tool input is `name
 
 Plugin integrations are available for Claude Code and opencode.
 
-#### Claude Code plugin integration (marketplace-based)
+### Claude Code plugin integration (marketplace-based)
 
 The Claude Code integration is packaged as two plugins:
 
@@ -406,7 +511,7 @@ The `agent-inject` plugin also registers a `UserPromptSubmit` hook that returns 
 
 The `tool-search` plugin bundles the same MCP bridge described in [GPT Tool Search](#gpt-tool-search), so Claude Code users do not need to add the `tool_search` server manually when they install that plugin.
 
-#### Opencode plugin
+### Opencode plugin
 
 The subagent marker producer is packaged as an opencode plugin located at `plugin/opencode/subagent-marker.js`.
 
@@ -502,13 +607,13 @@ The following command line options are available for the `start` command:
 
 | Option       | Description               | Default | Alias |
 | ------------ | ------------------------- | ------- | ----- |
-| --provider   | Provider to log in with or configure (`copilot`, `codex`, `opencode-go`, `deepseek`, `dashscope`, `openrouter`, or `custom`) | prompt | none |
+| --provider   | Provider to log in with or configure (`copilot`, `codex`, `opencode-go`, `kimi`, `deepseek`, `dashscope`, `openrouter`, or `custom`) | prompt | none |
 | --verbose    | Enable verbose logging    | false   | -v    |
 | --show-token | Show GitHub token on auth | false   | none  |
 
 Use `copilot-api auth login --provider copilot` only when you want to enable the GitHub Copilot provider. Copilot is not required for `codex` or third-party provider-only usage.
 
-Use `copilot-api auth login --provider deepseek`, `--provider dashscope`, `--provider openrouter`, or `--provider opencode-go` to add or update those common third-party providers from the CLI. DeepSeek prompts for masked `apiKey`, provider `type` (default `anthropic`), and `baseUrl` defaulting to `https://api.deepseek.com/anthropic`. DashScope prompts for masked `apiKey`, provider `type` (default `openai-compatible`), and prefilled `baseUrl`. OpenRouter prompts for masked `apiKey` and prefilled `baseUrl` only, and writes `type: "anthropic"`. OpenCode Go prompts for masked `apiKey` and prefilled `baseUrl` only, and writes `type: "openai-compatible"` (baseUrl `https://opencode.ai/zen/go`). After a provider is configured and enabled, `copilot-api start` can run without any GitHub token.
+Use `copilot-api auth login --provider deepseek`, `--provider dashscope`, `--provider openrouter`, `--provider opencode-go`, or `--provider kimi` to add or update those common third-party providers from the CLI. DeepSeek prompts for masked `apiKey`, provider `type` (default `anthropic`), and `baseUrl` defaulting to `https://api.deepseek.com/anthropic`. DashScope prompts for masked `apiKey`, provider `type` (default `openai-compatible`), and prefilled `baseUrl`. OpenRouter prompts for masked `apiKey` and prefilled `baseUrl` only, and writes `type: "anthropic"`. OpenCode Go prompts for masked `apiKey` and prefilled `baseUrl` only, and writes `type: "openai-compatible"` (baseUrl `https://opencode.ai/zen/go`). Kimi prompts for masked `apiKey` and prefilled `baseUrl` only, and writes `type: "openai-compatible"` (baseUrl `https://api.kimi.com/coding`). OpenCode Go additionally routes built-in `qwen*` and `minimax*` models through Anthropic Messages and `gpt*` models through OpenAI Responses; other models keep the OpenAI-compatible default. After a provider is configured and enabled, `copilot-api start` can run without any GitHub token.
 
 Use `copilot-api auth login --provider custom` to add or update another third-party provider from the CLI. The command prompts for the provider name, supported type (`anthropic`, `openai-compatible`, or `openai-responses`), `baseUrl`, masked `apiKey`, and `authType`; `authType` may be left as the type default or set to `x-api-key` / `authorization`.
 
@@ -540,10 +645,7 @@ Use `copilot-api auth login --provider custom` to add or update another third-pa
     },
     "modelResponsesApiCompactThresholds": {
       "gpt-5.4": 217600,
-      "gpt-5.5": 217600,
-      "gpt-5.6-sol": 231200,
-      "gpt-5.6-terra": 231200,
-      "gpt-5.6-luna": 231200
+      "gpt-5.5": 217600
     },
     "modelReasoningEfforts": {
       "gpt-5-mini": "low"
@@ -551,6 +653,8 @@ Use `copilot-api auth login --provider custom` to add or update another third-pa
     "useMessagesApi": true,
     "useResponsesApiWebSocket": true,
     "useResponsesApiWebSearch": true,
+    "alphaSearchCodexPriority": true,
+    "alphaSearchModel": "gpt-5-mini",
     "messageApiWebSearchModel": "gpt-5-mini"
   }
   ```
@@ -558,12 +662,12 @@ Use `copilot-api auth login --provider custom` to add or update another third-pa
 - **auth.adminApiKey:** Single admin key used only for `/admin/*` routes. If missing, the server generates a random key at startup and writes it back to `config.json`. Requests use the same `x-api-key` or `Authorization: Bearer` headers, but regular `auth.apiKeys` never grant access to `/admin/*`.
 - **modelMappings:** Exact `sourceModel -> targetModel` rewrites shared by top-level `POST /v1/messages`, `POST /v1/messages/count_tokens`, `POST /v1/responses`, and `POST /v1/chat/completions` requests. Omit it or leave it as `{}` to disable rewrites. Both the source and target must be non-empty strings. Targets can be regular model IDs or `provider/model` aliases such as `dashscope/qwen3.6-plus`, and the rewrite happens before provider alias parsing. These mappings are not split per interface. The admin endpoints `GET/POST /admin/config/model-mappings` read and update only this field.
 - **extraPrompts:** Map of `model -> prompt` appended to the first system prompt when translating Anthropic-style requests to Responses API. Use this to inject guardrails or guidance per model. Missing default entries are auto-added without overwriting your custom prompts. For GPT-5.3+ models (e.g. `gpt-5.3-codex`, `gpt-5.4`, `gpt-5.5`), a built-in commentary prompt is used as fallback when not explicitly configured. The built-in prompts enable phase-aware commentary, which lets the model emit a short user-facing progress update before tools or deeper reasoning.
-- **providers:** Global upstream provider map. Each provider key (for example `dashscope`) becomes a route prefix (`/dashscope/v1/messages`). Supports `type: "anthropic"`, `type: "openai-compatible"`, and `type: "openai-responses"`. Top-level clients can also use `model: "dashscope/model-id"` with `/v1/messages`, `/v1/messages/count_tokens`, `/v1/responses`, and `/v1/chat/completions`; the gateway strips the `dashscope/` prefix before forwarding upstream. `openai-compatible` providers support both chat and Messages flows: `/v1/chat/completions` is proxied to upstream `/v1/chat/completions`, while `/v1/messages` and `/:provider/v1/messages` are translated to upstream chat completions and translated back to Anthropic Messages responses. `GET /v1/models` aggregates enabled provider models with `provider/model-id` IDs; use `GET /dashscope/v1/models` for a single provider's raw model list.
+- **providers:** Global upstream provider map. Each provider key (for example `dashscope`) becomes a route prefix (`/dashscope/v1/messages`). Supports `type: "anthropic"`, `type: "openai-compatible"`, and `type: "openai-responses"`. Top-level clients can also use `model: "dashscope/model-id"` with `/v1/messages`, `/v1/messages/count_tokens`, `/v1/responses`, and `/v1/chat/completions`; the gateway strips the `dashscope/` prefix before forwarding upstream. The `/v1/responses` route for `anthropic` and `openai-compatible` providers uses the Responses Lite → Messages adapter; `openai-compatible` providers then reuse the Messages → Chat translation. `GET /v1/models` aggregates enabled provider models with `provider/model-id` IDs, while the top-level Codex-UA catalog also merges these adaptable models as `use_responses_lite` entries. Use `GET /dashscope/v1/models` for a single provider's raw model list.
   - `enabled` defaults to `true` if omitted.
   - `baseUrl` should be provider API base URL without the final endpoint. For Anthropic providers, omit `/v1/messages`; for OpenAI-compatible providers, omit `/v1/chat/completions`; for OpenAI Responses providers, omit `/v1/responses`.
   - `apiKey` is used as the upstream credential value and is required for regular providers.
   - `authType` (optional): Controls how `apiKey` is sent upstream. Supports `x-api-key` and `authorization` for regular providers. Anthropic providers default to `x-api-key`; OpenAI-compatible and OpenAI Responses providers default to `authorization`. When set to `authorization`, the proxy sends `Authorization: Bearer <apiKey>`. `oauth2` is reserved for the built-in `codex` provider and is written automatically by `auth login --provider codex`.
-  - `pricingCurrency` (optional): Provider-level currency used for token cost calculation, for example `USD` or `CNY`. Quick providers default to `CNY` for DashScope and DeepSeek, and `USD` for Codex/OpenRouter. Costs are grouped by currency and are not exchange-rate converted.
+  - `pricingCurrency` (optional): Provider-level currency used for token cost calculation, for example `USD` or `CNY`. Quick providers default to `CNY` for DashScope and DeepSeek, and `USD` for Codex, Kimi, OpenCode Go, and OpenRouter. Costs are grouped by currency and are not exchange-rate converted.
   - `models` (optional): Per-model configuration map. Each key is a model ID (matching the model name in requests), and the value is:
     - `temperature` (optional): Default temperature value used when the request does not specify one.
     - `topP` (optional): Default top_p value used when the request does not specify one.
@@ -574,63 +678,10 @@ Use `copilot-api auth login --provider custom` to add or update another third-pa
     - `supportPdf` (optional): Controls whether the model supports PDF/document content. Defaults to `false`; unsupported PDFs are converted to a text notice. Set it to `true` to send PDF/document blocks as OpenAI Chat Completions file parts.
     - `toolContentSupportType` (optional): Tool result content capabilities for that model, as an array of `array`, `image`, and `pdf`. Provider routes default to string-only tool content when omitted. If `supportPdf` is `true` but this list does not include `pdf`, file parts in tool results are moved to user role messages. This provider default does not change the Copilot main flow, which continues to support array + image and not PDF.
     - `type` (optional): Per-model override of the provider protocol type. Supports `anthropic`, `openai-compatible`, and `openai-responses`. When set, the provider's `/v1/messages` route uses this model's type instead of the provider-level type for request routing, auth header resolution, and upstream endpoint selection. This is useful for providers like OpenCode Go whose upstream supports both OpenAI-compatible and Anthropic Messages APIs for different models. When the type is overridden, the auth header is resolved from the overridden type's default (Anthropic defaults to `x-api-key`; OpenAI-compatible/Responses default to `authorization`).
-
-  Example DashScope model settings:
-  ```json
-  {
-    "providers": {
-      "dashscope": {
-        "type": "openai-compatible",
-        "enabled": true,
-        "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode",
-        "apiKey": "sk-your-dashscope-key",
-        "pricingCurrency": "CNY",
-        "models": {
-          "qwen3.7-plus": {
-            "temperature": 1,
-            "topP": 0.95,
-            "topK": 20,
-            "extraBody": {
-              "preserve_thinking": true
-            }
-          },
-          "glm-5.1": {
-            "temperature": 0.7,
-            "topP": 0.95,
-            "contextCache": true,
-            "pricing": {
-              "tiers": [
-                {
-                  "maxInputTokens": 32000,
-                  "input": 6,
-                  "cachedInput": 1.2,
-                  "explicitCachedInput": 0.6,
-                  "cacheCreationInput": 7.5,
-                  "output": 24
-                },
-                {
-                  "maxInputTokens": 200000,
-                  "input": 8,
-                  "cachedInput": 1.6,
-                  "explicitCachedInput": 0.8,
-                  "cacheCreationInput": 10,
-                  "output": 28
-                }
-              ]
-            },
-            "extraBody": {
-              "preserve_thinking": true
-            }
-          }
-        }
-      }
-    }
-  }
-  ```
-  Built-in token prices cover Codex GPT models in USD, DashScope `qwen3.7-max`, `qwen3.7-plus`, `glm-5.1`, `glm-5.2` in CNY, DeepSeek `deepseek-v4-flash`, `deepseek-v4-pro`, `deepseek-chat`, `deepseek-reasoner` in CNY, and OpenCode Go models (`glm-5.2`, `grok-4.5`, `deepseek-v4-flash`, `deepseek-v4-pro`, `kimi-k2.7-code`, `kimi-k3`, `mimo-v2.5`, `mimo-v2.5-pro`, `qwen3.7-plus`, `qwen3.7-max`, `minimax-m2.7`, `minimax-m3`) in USD. User `pricing` entries override built-ins. For DashScope, cached tokens are charged as explicit cache reads when the upstream usage includes `cache_creation_input_tokens`; otherwise `cachedInput` is used as the implicit cache read price. For DeepSeek, `prompt_cache_hit_tokens` map to cached input and `prompt_cache_miss_tokens` map to regular input.
+    - `codex` (optional): Controls capability metadata when this model is merged into the Codex-UA model catalog. Supports `enabled`, `contextWindow`, `maxOutputTokens`, `inputModalities`, `reasoningEfforts`, `defaultReasoningEffort`, and `supportsParallelToolCalls`; set `enabled: false` to hide the model. When `reasoningEfforts` is not set, it defaults to `["high", "xhigh", "max"]` and `defaultReasoningEffort` defaults to `max`.
 - **smallModel:** Fallback model used for tool-less warmup messages (e.g., Claude Code probe requests); defaults to gpt-5-mini. The gateway forces this small model on no-tool warmup or probe requests to avoid consuming premium requests. This behavior only applies to non-token-based-billing GitHub Copilot accounts (`token_based_billing` is false); for token-based-billing accounts the warmup small-model fallback is skipped since there is no premium-request quota to preserve.
 - **contextManagement:** Controls whether the proxy adds Responses API `context_management` compaction instructions. `messages` applies when Anthropic-style `/v1/messages` requests are translated to Responses API, including `openai-responses` provider message routes, and defaults to `true`. `responses` applies to native `/v1/responses` traffic, including `provider/model` aliases and the built-in `codex` provider, and defaults to `false`. Enable `responses` only after checking that your client supports context management compaction. When enabled, the request includes `context_management` in the body and keeps only the latest compaction carrier on follow-up turns. **Note:** Context management is forcibly disabled for GPT-5.6 and above models (e.g. `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`) because enabling it breaks prompt cache hits on those models. This override takes precedence over the `contextManagement` and `modelResponsesApiCompactThresholds` settings.
-- **modelResponsesApiCompactThresholds:** Per-model Responses API `compact_threshold` overrides used when the proxy adds `context_management`. These values take precedence over the fallback threshold from `resolveResponsesCompactThreshold` (`max_prompt_tokens * ratio`, or the default fallback). Defaults set `gpt-5.4` and `gpt-5.5` to `217600` (`272000 * 0.8`), and `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna` to `231200` (`272000 * 0.85`). Models not listed continue to use the normal fallback logic.
+ - **modelResponsesApiCompactThresholds:** Per-model Responses API `compact_threshold` overrides used when the proxy adds `context_management`. These values take precedence over the fallback threshold from `resolveResponsesCompactThreshold` (`max_prompt_tokens * ratio`, or the default fallback). Defaults set `gpt-5.4` and `gpt-5.5` to `217600` (`272000 * 0.8`). Models not listed continue to use the normal fallback logic.
 - **modelReasoningEfforts:** Per-model fallback reasoning effort for `/v1/messages` requests. It is used only when the request does not provide `output_config.effort`.
   - **Priority:** request `output_config.effort` > `modelReasoningEfforts[model]` > built-in default (`xhigh` for GPT-5.3+ models, otherwise `high`).
   - **Forwarding:** the resolved value remains `output_config.effort` for the Copilot native Messages API and becomes `reasoning.effort` when translated to the Responses API.
@@ -638,7 +689,10 @@ Use `copilot-api auth login --provider custom` to add or update another third-pa
 - **useMessagesApi:** When `true`, Claude-family models that support Copilot's native `/v1/messages` endpoint will use the Messages API; otherwise they fall back to `/chat/completions`. Set to `false` to disable Messages API routing and always use `/chat/completions`. Defaults to `true`.
 - **useResponsesApiWebSocket:** When `true`, Responses API requests use Copilot's websocket transport for models that advertise `ws:/responses`; models that only advertise `/responses` continue to use HTTP. Set to `false` to disable websocket routing and use HTTP `/responses` whenever the selected model supports it. Defaults to `true`. If the Responses API WebSocket gets closed, it is usually caused by your own network. If you are using a VPN, try switching to a different node.
 - **useResponsesApiWebSearch:** When `true`, the server keeps Responses API tools with `type: "web_search"` and forwards them upstream. Set to `false` to strip those tools from `/responses` payloads. Defaults to `true`.
+- **alphaSearchCodexPriority:** Defaults to `true`. Top-level alpha-search requests prefer the Codex alpha-search endpoint because it does not consume provider quota. If Codex is unavailable, or this setting is `false`, requests with a `provider/model` alias other than `codex/model` use that provider's `/v1/responses` endpoint, and requests without a provider prefix use GitHub Copilot Responses web search. The adapter recognizes every current Codex search command; unsupported `image_query` and `screenshot` operations return successful no-retry tool output.
+- **alphaSearchModel:** Native Responses search model used when a Messages-backed Responses Lite model cannot run Responses web search directly. Defaults to `gpt-5-mini`; it may be a regular Copilot model or an `openai-responses` `provider/model` alias. Set it to an empty string to disable this redirect, in which case alpha-search requests for those models return an invalid-request error.
 - **messageApiWebSearchModel:** Global fallback model used when a top-level Copilot `/v1/messages` request contains only the server-side `web_search` tool. Defaults to `gpt-5-mini`. If the value is a `provider/model` alias, the request is routed into that provider's Messages API path with the provider prefix stripped. For Copilot GPT models, web search runs through `/responses`. Mixed `web_search` plus custom tools are not supported and the server-side `web_search` tool is stripped.
+- **claudeAutoModel:** Model used for Claude Code background security-monitor requests on `/v1/messages` and provider message routes. A request is treated as a security-monitor request when it carries no tools, sets `stop_sequences` to `["</block>"]`, and contains a system text block starting with `You are a security monitor for autonomous AI coding agents.`; its model is then replaced with this value. For top-level requests, a `provider/model` alias is forwarded into that provider's Messages API; provider routes keep their current provider and use this configured value directly. Defaults to empty (disabled).
 - **claudeTokenMultiplier:** Multiplier applied to the fallback GPT-tokenizer estimate for Claude `/v1/messages/count_tokens` requests. Defaults to `1.15`. Increase it if your client is still compacting too late. This setting is only used when the proxy is estimating Claude tokens locally; if `anthropicApiKey` is configured and Anthropic token counting succeeds, the exact Anthropic count is returned instead.
 - **anthropicApiKey:** Anthropic API key used to forward Claude `/v1/messages/count_tokens` requests to Anthropic's real token counting endpoint, which returns exact counts instead of GPT tokenizer estimates. Can also be set via the `ANTHROPIC_API_KEY` environment variable. If not set, or if the upstream call fails, token counting falls back to local GPT tokenizer estimation controlled by `claudeTokenMultiplier`.
 
@@ -687,9 +741,9 @@ These endpoints mimic the OpenAI API structure.
 
 These endpoints require an active Codex login. Each endpoint is available both without a version prefix and under `/v1`.
 
-| Endpoint | Method | Description |
-| --- | --- | --- |
-| `POST /alpha/search`<br>`POST /v1/alpha/search` | `POST` | Transparently forwards the JSON body and query parameters to the Codex Alpha Search upstream. |
+| Endpoint                                                       | Method | Description                                                     |
+| -------------------------------------------------------------- | ------ | --------------------------------------------------------------- |
+| `POST /alpha/search`<br>`POST /v1/alpha/search`                | `POST` | Transparently forwards the JSON body and query parameters to the Codex Alpha Search upstream. |
 | `POST /images/generations`<br>`POST /v1/images/generations` | `POST` | Forwards a JSON image generation request to the Codex Images upstream. When the request omits `Content-Type`, the gateway defaults it to `application/json`. |
 | `POST /images/edits`<br>`POST /v1/images/edits` | `POST` | Forwards an image edit request to the Codex Images upstream. Send this request as `multipart/form-data` and let the HTTP client generate the `boundary`; the gateway preserves the incoming content type and streams the upload body. |
 
@@ -770,7 +824,7 @@ curl http://localhost:4141/dashscope/v1/messages \
 
 ### CLAUDE.md or AGENTS.md Recommended Content
 
-To add these reminders manually, include the following in `CLAUDE.md` for Claude Code, or `AGENTS.md` for opencode/codex:
+Same reminders as `CLAUDE_PLUGIN_ENABLE_QUESTION_RULES=1` in the `agent-inject` plugin, for when you don't use that plugin. Add to `CLAUDE.md` (Claude Code) or `AGENTS.md` (opencode/codex):
 
 ```
 - Prohibited from directly asking questions to users, MUST use question tool.

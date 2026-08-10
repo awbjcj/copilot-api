@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, expect, mock, test } from "bun:test"
 
-import { state } from "../src/lib/state"
-import { cacheModels, sleep, stopModelsRefreshLoop } from "../src/lib/utils"
+import { state } from "~/lib/state"
+import { sleep } from "~/lib/utils"
+import {
+  cacheModels,
+  stopModelsRefreshLoop,
+} from "~/services/copilot/models-cache"
 
 const makeModels = (ids: Array<string>) => ({
   data: ids.map((id) => ({

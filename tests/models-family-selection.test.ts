@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, expect, test } from "bun:test"
 
-import type { Model } from "../src/services/copilot/get-models"
+import type { Model } from "~/lib/types/models"
 
-import { getLatestModelForFamily } from "../src/lib/models"
-import { state } from "../src/lib/state"
+import { getLatestModelForFamily } from "~/lib/models"
+import { state } from "~/lib/state"
 
 const makeModels = (
   ids: Array<string>,

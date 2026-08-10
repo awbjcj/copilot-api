@@ -16,6 +16,7 @@ export interface Locale {
     providerDashscope: string
     providerDeepseek: string
     providerInvalid: string
+    providerKimi: string
     providerName: string
     providerOpencodeGo: string
     providerOpenrouter: string

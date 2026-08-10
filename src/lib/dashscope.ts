@@ -1,8 +1,5 @@
 import type { ResolvedProviderConfig } from "~/lib/config"
-import type {
-  ContentPart,
-  Message,
-} from "~/services/copilot/create-chat-completions"
+import type { ContentPart, Message } from "~/lib/types/chat-completions"
 
 const OPENAI_COMPATIBLE_CONTEXT_CACHE_MARKER_LIMIT = 4
 const OPENAI_COMPATIBLE_CONTEXT_CACHE_CONTROL = {

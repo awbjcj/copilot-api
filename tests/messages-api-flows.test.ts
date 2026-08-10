@@ -4,25 +4,22 @@ import { Hono } from "hono"
 import type {
   AnthropicMessagesPayload,
   AnthropicResponse,
-} from "../src/routes/messages/anthropic-types"
-import type { Model } from "../src/services/copilot/get-models"
+} from "~/lib/types/anthropic"
+import type { Model } from "~/lib/types/models"
 import type {
   ChatCompletionResponse,
   ChatCompletionsPayload,
-} from "../src/services/copilot/create-chat-completions"
-import type { CreateMessagesReturn } from "../src/services/copilot/create-messages"
+} from "~/lib/types/chat-completions"
+import type { CreateMessagesReturn } from "~/services/copilot/create-messages"
 import type {
   CreateResponsesReturn,
   ResponsesPayload,
   ResponsesResult,
   ResponsesTransport,
-} from "../src/services/copilot/create-responses"
+} from "~/lib/types/responses"
 
-import { COMPACT_REQUEST } from "../src/lib/compact"
-import {
-  closeUsageStore,
-  getTokenUsageEventsPage,
-} from "../src/lib/token-usage"
+import { COMPACT_REQUEST } from "~/lib/compact"
+import { closeUsageStore, getTokenUsageEventsPage } from "~/lib/token-usage"
 
 const DB_PATH_ENV = "COPILOT_API_SQLITE_DB_PATH"
 
@@ -81,10 +78,8 @@ const {
   handleWithResponsesApi,
   messagesApiFlowDependencies,
   prepareCopilotChatCompletionsPayload,
-} = await import("../src/routes/messages/api-flows")
-const { responsesUtilsDependencies } = await import(
-  "../src/routes/responses/utils"
-)
+} = await import("~/routes/messages/api-flows")
+const { responsesUtilsDependencies } = await import("~/routes/responses/utils")
 
 const defaultMessagesApiFlowDependencies = { ...messagesApiFlowDependencies }
 const defaultResponsesUtilsDependencies = { ...responsesUtilsDependencies }

@@ -1,25 +1,22 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test"
 
-import type {
-  ResponsesPayload,
-  ResponsesResult,
-} from "../src/services/copilot/create-responses"
+import type { ResponsesPayload, ResponsesResult } from "~/lib/types/responses"
 
 import {
   copilotHeaders,
   copilotWebSocketHeaders,
   prepareForCompact,
   prepareInteractionHeaders,
-} from "../src/lib/api-config"
-import { COMPACT_REQUEST } from "../src/lib/compact"
-import { state } from "../src/lib/state"
+} from "~/lib/api-config"
+import { COMPACT_REQUEST } from "~/lib/compact"
+import { state } from "~/lib/state"
 import {
   buildResponsesWebSocketPoolKey,
   buildResponsesWebSocketPayload,
   buildResponsesWebSocketUrl,
   createResponses,
   prepareResponsesWebSocketRequest,
-} from "../src/services/copilot/create-responses"
+} from "~/services/copilot/create-responses"
 
 const originalFetch = globalThis.fetch
 const originalOauthApp = process.env.COPILOT_API_OAUTH_APP

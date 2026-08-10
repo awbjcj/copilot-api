@@ -1,15 +1,16 @@
 import { describe, expect, test } from "bun:test"
 
-import type { AnthropicStreamEventData } from "~/routes/messages/anthropic-types"
+import type { AnthropicStreamEventData } from "~/lib/types/anthropic"
 import type {
   ResponseCompletedEvent,
   ResponseOutputItemAddedEvent,
+  ResponseOutputItemDoneEvent,
   ResponseFunctionCallArgumentsDeltaEvent,
   ResponseFunctionCallArgumentsDoneEvent,
   ResponseReasoningSummaryPartAddedEvent,
   ResponseReasoningSummaryTextDeltaEvent,
   ResponseReasoningSummaryTextDoneEvent,
-} from "~/services/copilot/create-responses"
+} from "~/lib/types/responses"
 
 import {
   createResponsesStreamState,
@@ -337,6 +338,51 @@ describe("translateResponsesStreamEvent tool calls", () => {
 })
 
 describe("translateResponsesStreamEvent reasoning summaries", () => {
+  test("uses empty thinking text for signature-only reasoning blocks", () => {
+    const state = createResponsesStreamState()
+    const events = [
+      translateResponsesStreamEvent(
+        {
+          type: "response.output_item.done",
+          sequence_number: 1,
+          output_index: 0,
+          item: {
+            id: "reasoning-1",
+            type: "reasoning",
+            summary: [],
+            encrypted_content: "encrypted-reasoning",
+            status: "completed",
+          },
+        } satisfies ResponseOutputItemDoneEvent,
+        state,
+      ),
+      translateResponsesStreamEvent(
+        {
+          type: "response.output_item.done",
+          sequence_number: 2,
+          output_index: 1,
+          item: {
+            id: "compaction-1",
+            type: "compaction",
+            encrypted_content: "encrypted-compaction",
+          },
+        } satisfies ResponseOutputItemDoneEvent,
+        state,
+      ),
+    ].flat()
+
+    const thinkingDeltas = events.flatMap((event) =>
+      (
+        event.type === "content_block_delta"
+        && event.delta.type === "thinking_delta"
+      ) ?
+        [event.delta.thinking]
+      : [],
+    )
+
+    expect(thinkingDeltas).toEqual(["", ""])
+  })
+
   test("separates delta and done-only summaries exactly once", () => {
     const state = createResponsesStreamState()
     const partAdded = (summaryIndex: number, sequenceNumber: number) =>

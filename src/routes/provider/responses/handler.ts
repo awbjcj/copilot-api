@@ -14,17 +14,19 @@ import {
   normalizeResponsesUsage,
   type UsageTokens,
 } from "~/lib/token-usage"
+import { isResponsesStream } from "~/lib/utils"
 import {
   applyResponsesApiContextManagement,
   compactInputByLatestCompaction,
 } from "~/routes/responses/utils"
+import { handleResponsesViaMessages } from "~/routes/responses/messages-handler"
 
 import type {
   ResponsesPayload,
   ResponsesResult,
   ResponseStreamEvent,
   ResponsesStream,
-} from "~/services/copilot/create-responses"
+} from "~/lib/types/responses"
 import { forwardCodexResponses } from "~/services/codex/create-responses"
 import { getModels as getCodexModels } from "~/services/codex/get-models"
 import {
@@ -40,19 +42,42 @@ export async function handleProviderResponsesForProvider(
   options: {
     payload: ResponsesPayload
     provider: string
+    publicModel?: string
   },
 ): Promise<Response> {
   const { payload, provider } = options
+
   debugJson(logger, "Responses request payload:", {
     payload,
     provider,
   })
+
   const providerConfig = await resolveProviderConfig(provider)
-  if (
-    !providerConfig
-    || resolveEffectiveProviderType(providerConfig, payload.model)
-      !== "openai-responses"
-  ) {
+  if (!providerConfig) {
+    return c.json(
+      {
+        error: {
+          message: `Provider '${provider}' does not support the /v1/responses endpoint`,
+          type: "invalid_request_error",
+        },
+      },
+      400,
+    )
+  }
+
+  const effectiveType = resolveEffectiveProviderType(
+    providerConfig,
+    payload.model,
+  )
+  if (effectiveType === "anthropic" || effectiveType === "openai-compatible") {
+    return await handleResponsesViaMessages(c, {
+      payload,
+      publicModel: options.publicModel ?? payload.model,
+      targetModel: `${provider}/${payload.model}`,
+    })
+  }
+
+  if (effectiveType !== "openai-responses") {
     return c.json(
       {
         error: {
@@ -298,10 +323,3 @@ const getResponsesStreamEventUsage = (
 
 const getResponsesEvents = (response: Response): ResponsesStream =>
   events(response)
-
-const isResponsesStream = (value: unknown): value is ResponsesStream => {
-  return (
-    Boolean(value)
-    && typeof (value as ResponsesStream)[Symbol.asyncIterator] === "function"
-  )
-}

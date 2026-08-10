@@ -25,11 +25,15 @@ import type {
   ChatCompletionChunk,
   ChatCompletionResponse,
   ChatCompletionsPayload,
-} from "~/services/copilot/create-chat-completions"
+} from "~/lib/types/chat-completions"
 import {
   createProviderProxyResponse,
   forwardProviderChatCompletions,
 } from "~/services/providers/provider-proxy"
+import {
+  applyMissingExtraBody,
+  applyModelDefaults,
+} from "~/routes/provider/utils"
 
 const logger = createHandlerLogger("provider-chat-completions-handler")
 
@@ -59,7 +63,7 @@ export async function handleProviderChatCompletionsForProvider(
   }
 
   const modelConfig = providerConfig.models?.[payload.model]
-  applyProviderModelDefaults(payload, modelConfig)
+  applyModelDefaults(payload, modelConfig)
   applyMissingExtraBody(payload, {
     extraBody: modelConfig?.extraBody,
   })
@@ -116,26 +120,6 @@ export async function handleProviderChatCompletionsForProvider(
 
   debugJson(logger, "provider.chat_completions.response", responseBody)
   return createProviderProxyResponse(upstreamResponse)
-}
-
-const applyProviderModelDefaults = (
-  payload: ChatCompletionsPayload,
-  modelConfig: ModelConfig | undefined,
-): void => {
-  payload.temperature ??= modelConfig?.temperature
-  payload.top_p ??= modelConfig?.topP
-  payload.top_k ??= modelConfig?.topK
-}
-
-const applyMissingExtraBody = (
-  payload: Record<string, unknown>,
-  options: { extraBody: Record<string, unknown> | undefined },
-): void => {
-  for (const [key, value] of Object.entries(options.extraBody ?? {})) {
-    if (!Object.hasOwn(payload, key)) {
-      payload[key] = value
-    }
-  }
 }
 
 const applyProviderStreamOptions = (payload: ChatCompletionsPayload): void => {

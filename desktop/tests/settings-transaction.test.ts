@@ -7,9 +7,15 @@ describe('desktop settings transaction', () => {
     const events: string[] = []
 
     await runSettingsTransaction(
-      () => events.push('apply'),
-      () => events.push('persist'),
-      () => events.push('rollback'),
+      () => {
+        events.push('apply')
+      },
+      () => {
+        events.push('persist')
+      },
+      () => {
+        events.push('rollback')
+      },
     )
     expect(events).toEqual(['apply', 'persist'])
 
@@ -17,12 +23,16 @@ describe('desktop settings transaction', () => {
     const error = new Error('write failed')
     await expect(
       runSettingsTransaction(
-        () => events.push('apply'),
+        () => {
+          events.push('apply')
+        },
         () => {
           events.push('persist')
           throw error
         },
-        () => events.push('rollback'),
+        () => {
+          events.push('rollback')
+        },
       ),
     ).rejects.toBe(error)
     expect(events).toEqual(['apply', 'persist', 'rollback'])

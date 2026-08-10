@@ -11,9 +11,12 @@ import { state } from "./state"
 const LOG_RETENTION_DAYS = 7
 const LOG_RETENTION_MS = LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000
 const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000
-const LOG_DIR = path.join(PATHS.APP_DIR, "logs")
+const LOG_DIR_ENV = "COPILOT_API_LOG_DIR"
+const DEFAULT_LOG_DIR = path.join(PATHS.APP_DIR, "logs")
 const FLUSH_INTERVAL_MS = 1000
 const MAX_BUFFER_SIZE = 100
+
+const getLogDir = () => process.env[LOG_DIR_ENV]?.trim() || DEFAULT_LOG_DIR
 
 const logStreams = new Map<string, fs.WriteStream>()
 const logBuffers = new Map<string, Array<string>>()
@@ -23,20 +26,22 @@ let flushInterval: ReturnType<typeof setInterval> | undefined
 let cleanupInterval: ReturnType<typeof setInterval> | undefined
 
 const ensureLogDirectory = () => {
-  if (!fs.existsSync(LOG_DIR)) {
-    fs.mkdirSync(LOG_DIR, { recursive: true })
+  const logDir = getLogDir()
+  if (!fs.existsSync(logDir)) {
+    fs.mkdirSync(logDir, { recursive: true })
   }
 }
 
 const cleanupOldLogs = () => {
-  if (!fs.existsSync(LOG_DIR)) {
+  const logDir = getLogDir()
+  if (!fs.existsSync(logDir)) {
     return
   }
 
   const now = Date.now()
 
-  for (const entry of fs.readdirSync(LOG_DIR)) {
-    const filePath = path.join(LOG_DIR, entry)
+  for (const entry of fs.readdirSync(logDir)) {
+    const filePath = path.join(logDir, entry)
 
     let stats: fs.Stats
     try {
@@ -104,7 +109,19 @@ const flushAllBuffers = () => {
   }
 }
 
-const cleanup = () => {
+const flushAndCloseLogStreams = () => {
+  flushAllBuffers()
+  for (const stream of logStreams.values()) {
+    stream.end()
+  }
+  logStreams.clear()
+  logBuffers.clear()
+}
+
+// Stops the background timers, flushes and closes all log streams, and resets
+// runtime state so the logger can be initialized again. Runs on process exit
+// and is also used by tests to release file handles before removing log dirs.
+export const shutdownLoggerRuntime = () => {
   if (flushInterval) {
     clearInterval(flushInterval)
     flushInterval = undefined
@@ -114,12 +131,8 @@ const cleanup = () => {
     cleanupInterval = undefined
   }
 
-  flushAllBuffers()
-  for (const stream of logStreams.values()) {
-    stream.end()
-  }
-  logStreams.clear()
-  logBuffers.clear()
+  flushAndCloseLogStreams()
+  runtimeInitialized = false
 }
 
 const initializeLoggerRuntime = () => {
@@ -138,7 +151,7 @@ const initializeLoggerRuntime = () => {
   cleanupInterval = setInterval(cleanupOldLogs, CLEANUP_INTERVAL_MS)
   maybeUnref(cleanupInterval)
 
-  registerProcessCleanup(cleanup)
+  registerProcessCleanup(shutdownLoggerRuntime)
 }
 
 const getLogStream = (filePath: string): fs.WriteStream => {
@@ -232,7 +245,7 @@ export const createHandlerLogger = (name: string): ConsolaInstance => {
       const date = logObj.date
       const dateKey = date.toLocaleDateString("sv-SE")
       const timestamp = date.toLocaleString("sv-SE", { hour12: false })
-      const filePath = path.join(LOG_DIR, `${sanitizedName}-${dateKey}.log`)
+      const filePath = path.join(getLogDir(), `${sanitizedName}-${dateKey}.log`)
       const message = formatArgs(logObj.args as Array<unknown>)
       const traceIdStr = traceId ? ` [${traceId}]` : ""
       const line = `[${timestamp}] [${logObj.type}] [${logObj.tag || name}]${traceIdStr}${

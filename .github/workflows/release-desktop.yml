@@ -34,6 +34,10 @@ jobs:
         working-directory: desktop
         run: bun install --frozen-lockfile
 
+      - name: Typecheck desktop
+        working-directory: desktop
+        run: bun run typecheck
+
       - name: Build macOS arm64 package
         working-directory: desktop
         run: bun run package:mac
@@ -70,6 +74,10 @@ jobs:
       - name: Install desktop dependencies
         working-directory: desktop
         run: bun install --frozen-lockfile
+
+      - name: Typecheck desktop
+        working-directory: desktop
+        run: bun run typecheck
 
       - name: Build Windows package
         working-directory: desktop
@@ -109,6 +117,10 @@ jobs:
       - name: Install desktop dependencies
         working-directory: desktop
         run: bun install --frozen-lockfile
+
+      - name: Typecheck desktop
+        working-directory: desktop
+        run: bun run typecheck
 
       - name: Build Linux x64 package
         working-directory: desktop

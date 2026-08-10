@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test"
 
-import type { AnthropicMessagesPayload } from "../src/routes/messages/anthropic-types"
+import type { AnthropicMessagesPayload } from "~/lib/types/anthropic"
 
-import { mergeToolResultForClaude } from "../src/routes/messages/preprocess"
+import { mergeToolResultForClaude } from "~/routes/messages/preprocess"
 
 test("matches pasted PDF documents to PDF file read tool_results", () => {
   const pdfPath1 = String.raw`/home/user/docs/report2024.pdf`

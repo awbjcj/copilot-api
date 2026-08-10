@@ -4,9 +4,9 @@ import { z } from "zod"
 import type {
   ChatCompletionChunk,
   ChatCompletionResponse,
-} from "~/services/copilot/create-chat-completions"
+} from "~/lib/types/chat-completions"
 
-import { type AnthropicStreamState } from "~/routes/messages/anthropic-types"
+import { type AnthropicStreamState } from "~/lib/types/anthropic"
 import { translateToAnthropic } from "~/routes/messages/non-stream-translation"
 import {
   flushPendingAnthropicStreamEvents,

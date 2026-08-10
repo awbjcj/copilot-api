@@ -1,10 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import consola from "consola"
 
-import type {
-  ResponsesResult,
-  ResponsesStream,
-} from "~/services/copilot/create-responses"
+import type { ResponsesResult, ResponsesStream } from "~/lib/types/responses"
 
 import { collectResponsesStreamResult } from "~/routes/messages/responses-stream-collection"
 

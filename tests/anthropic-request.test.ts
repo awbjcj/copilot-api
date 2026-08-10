@@ -1,16 +1,16 @@
 import { describe, test, expect } from "bun:test"
 import { z } from "zod"
 
-import type { AnthropicMessagesPayload } from "~/routes/messages/anthropic-types"
-import type { Model } from "~/services/copilot/get-models"
+import type { AnthropicMessagesPayload } from "~/lib/types/anthropic"
+import type { Model } from "~/lib/types/models"
 
-import { COMPACT_REQUEST } from "../src/lib/compact"
-import { state } from "../src/lib/state"
+import { COMPACT_REQUEST } from "~/lib/compact"
+import { state } from "~/lib/state"
 import {
   RICH_TOOL_RESULT_MOVED_TEXT,
   translateToOpenAI,
-} from "../src/routes/messages/non-stream-translation"
-import { getCompactType } from "../src/routes/messages/preprocess"
+} from "~/routes/messages/non-stream-translation"
+import { getCompactType } from "~/routes/messages/preprocess"
 
 // Zod schema for a single message in the chat completion request.
 const messageSchema = z.object({
@@ -223,6 +223,26 @@ describe("Anthropic to OpenAI translation logic", () => {
     const openAIPayload = translateToOpenAI(anthropicPayload)
     // Should fail validation
     expect(isValidChatCompletionRequest(openAIPayload)).toBe(false)
+  })
+
+  test("should skip assistant messages with empty content array", () => {
+    const anthropicPayload: AnthropicMessagesPayload = {
+      model: "gpt-4o",
+      messages: [
+        { role: "user", content: "Hello!" },
+        { role: "assistant", content: [] },
+        { role: "user", content: "Are you there?" },
+      ],
+      max_tokens: 100,
+    }
+
+    const openAIPayload = translateToOpenAI(anthropicPayload)
+
+    expect(openAIPayload.messages).toEqual([
+      { role: "user", content: "Hello!" },
+      { role: "user", content: "Are you there?" },
+    ])
+    expect(isValidChatCompletionRequest(openAIPayload)).toBe(true)
   })
 
   test("should handle thinking blocks in assistant messages", () => {

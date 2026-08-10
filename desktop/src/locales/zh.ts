@@ -15,6 +15,7 @@ const zh: Locale = {
     providerDashscope: 'DashScope',
     providerDeepseek: 'DeepSeek',
     providerInvalid: 'Provider 配置无效，请重试',
+    providerKimi: 'Kimi',
     providerName: 'Provider 名称',
     providerOpencodeGo: 'OpenCode Go',
     providerOpenrouter: 'OpenRouter',

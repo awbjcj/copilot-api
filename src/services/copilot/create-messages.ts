@@ -6,7 +6,7 @@ import type { SubagentMarker } from "~/lib/subagent"
 import type {
   AnthropicMessagesPayload,
   AnthropicResponse,
-} from "~/routes/messages/anthropic-types"
+} from "~/lib/types/anthropic"
 
 import {
   copilotBaseUrl,

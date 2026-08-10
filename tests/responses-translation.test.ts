@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test"
 
 import { requestContext } from "~/lib/request-context"
 import { createMcpToolSearchSentinel } from "~/lib/tool-search"
-import type { AnthropicMessagesPayload } from "~/routes/messages/anthropic-types"
+import type { AnthropicMessagesPayload } from "~/lib/types/anthropic"
 import type {
   ResponseFunctionCallOutputItem,
   ResponseInputMessage,
@@ -10,7 +10,7 @@ import type {
   ResponseToolSearchCallItem,
   ResponseToolSearchOutputItem,
   ResponsesResult,
-} from "~/services/copilot/create-responses"
+} from "~/lib/types/responses"
 
 import {
   REASONING_SUMMARY_SEPARATOR,
@@ -103,6 +103,11 @@ const translateThinking = (thinking: string): ResponseInputReasoning => {
 }
 
 describe("translateAnthropicMessagesToResponsesPayload", () => {
+  it("keeps empty summaries compatible with legacy Thinking markers", () => {
+    expect(translateThinking("").summary).toEqual([])
+    expect(translateThinking("Thinking...").summary).toEqual([])
+  })
+
   it("restores marked summary boundaries and preserves unmarked history", () => {
     const firstSummary =
       "**Preparing to search online**\n\nI need to use web.run."

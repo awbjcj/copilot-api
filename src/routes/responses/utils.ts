@@ -7,7 +7,7 @@ import type {
   ResponseInputMessage,
   ResponsesPayload,
   ResponsesTransport,
-} from "~/services/copilot/create-responses"
+} from "~/lib/types/responses"
 
 import { COMPACT_REQUEST, type CompactType } from "~/lib/compact"
 import {

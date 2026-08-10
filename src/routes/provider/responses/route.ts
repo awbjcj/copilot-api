@@ -1,7 +1,7 @@
 import { Hono } from "hono"
 
 import { forwardError } from "~/lib/error"
-import type { ResponsesPayload } from "~/services/copilot/create-responses"
+import type { ResponsesPayload } from "~/lib/types/responses"
 
 import { handleProviderResponsesForProvider } from "./handler"
 

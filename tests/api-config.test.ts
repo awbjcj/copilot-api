@@ -1,10 +1,8 @@
 import { afterEach, expect, test } from "bun:test"
 
-import {
-  prepareForCompact,
-  prepareMessageProxyHeaders,
-} from "../src/lib/api-config"
-import { COMPACT_AUTO_CONTINUE, COMPACT_REQUEST } from "../src/lib/compact"
+import { prepareForCompact, prepareMessageProxyHeaders } from "~/lib/api-config"
+import { COMPACT_AUTO_CONTINUE, COMPACT_REQUEST } from "~/lib/compact"
+import { isAlphaSearchCodexPriorityEnabled } from "~/lib/config"
 
 const originalOauthApp = process.env.COPILOT_API_OAUTH_APP
 
@@ -33,6 +31,10 @@ test("prepareMessageProxyHeaders applies message proxy headers by default", () =
   )
   expect(headers["x-request-id"]).toBeDefined()
   expect(headers["x-agent-task-id"]).toBe(headers["x-request-id"])
+})
+
+test("reads the alpha search Codex priority setting", () => {
+  expect(typeof isAlphaSearchCodexPriorityEnabled()).toBe("boolean")
 })
 
 test("prepareMessageProxyHeaders leaves opencode headers untouched", () => {

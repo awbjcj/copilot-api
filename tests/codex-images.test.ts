@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test"
 import { Hono } from "hono"
 
-import type { ResolvedProviderConfig } from "../src/lib/config"
+import type { ResolvedProviderConfig } from "~/lib/config"
 
-const actualConfigModule = await import("../src/lib/config")
-const actualTokenModule = await import("../src/lib/token")
+const actualConfigModule = await import("~/lib/config")
+const actualTokenModule = await import("~/lib/token")
 
 let codexProviderConfig: ResolvedProviderConfig | null = null
 let openrouterProviderConfig: ResolvedProviderConfig | null = null
@@ -28,17 +28,15 @@ await mock.module("~/lib/token", () => ({
   setupCodexToken: async () => {},
 }))
 
-const { state } = await import("../src/lib/state")
+const { state } = await import("~/lib/state")
 const { forwardCodexImages, resolveCodexImagesUrl } = await import(
-  "../src/services/codex/images"
+  "~/services/codex/images"
 )
 const { imageRouteDependencies, imageRoutes } = await import(
-  "../src/routes/images/route"
+  "~/routes/images/route"
 )
-const { providerImageRoutes } = await import(
-  "../src/routes/provider/images/route"
-)
-const { server } = await import("../src/server")
+const { providerImageRoutes } = await import("~/routes/provider/images/route")
+const { server } = await import("~/server")
 
 const originalDebugJsonAsync = imageRouteDependencies.debugJsonAsync
 let debugValues: Array<unknown> = []

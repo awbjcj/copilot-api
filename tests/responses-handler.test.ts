@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test"
-import { Hono } from "hono"
+import { Hono, type Context } from "hono"
 
-import type { createResponses as createCopilotResponses } from "../src/services/copilot/create-responses"
+import type { AnthropicMessagesPayload } from "~/lib/types/anthropic"
+import type { createResponses as createCopilotResponses } from "~/services/copilot/create-responses"
 
 let responsesApiWebSocketEnabled = true
 
@@ -28,22 +29,24 @@ const createResponsesResult = (model: string) => ({
   usage: null,
 })
 
-const { state } = await import("../src/lib/state")
-const { closeUsageStore } = await import("../src/lib/token-usage")
-const { tokenUsageRoute } = await import("../src/routes/token-usage/route")
+const { state } = await import("~/lib/state")
+const { closeUsageStore } = await import("~/lib/token-usage")
+const { tokenUsageRoute } = await import("~/routes/token-usage/route")
 const { responsesHandlerDependencies } = await import(
-  "../src/routes/responses/handler"
+  "~/routes/responses/handler"
 )
-const { responsesRoutes } = await import("../src/routes/responses/route")
-const { responsesUtilsDependencies } = await import(
-  "../src/routes/responses/utils"
+const { responsesMessagesDependencies } = await import(
+  "~/routes/responses/messages-handler"
 )
-const { generateRequestIdFromPayload, getUUID } = await import(
-  "../src/lib/utils"
-)
+const { responsesRoutes } = await import("~/routes/responses/route")
+const { responsesUtilsDependencies } = await import("~/routes/responses/utils")
+const { generateRequestIdFromPayload, getUUID } = await import("~/lib/utils")
 
 const defaultResponsesHandlerDependencies = {
   ...responsesHandlerDependencies,
+}
+const defaultResponsesMessagesDependencies = {
+  ...responsesMessagesDependencies,
 }
 const defaultResponsesUtilsDependencies = { ...responsesUtilsDependencies }
 
@@ -102,7 +105,10 @@ beforeEach(async () => {
 
   responsesApiWebSocketEnabled = true
   responsesHandlerDependencies.createResponses = createResponses
+  responsesHandlerDependencies.findEndpointModel = (model) =>
+    state.models?.data.find((candidate) => candidate.id === model)
   responsesHandlerDependencies.isResponsesApiWebSearchEnabled = () => true
+  responsesHandlerDependencies.resolveMappedModel = (model) => model
   responsesUtilsDependencies.getModelResponsesApiCompactThreshold = () =>
     undefined
   responsesUtilsDependencies.isContextManagementEnabledForMessages = () => true
@@ -129,10 +135,95 @@ afterEach(async () => {
     responsesHandlerDependencies,
     defaultResponsesHandlerDependencies,
   )
+  Object.assign(
+    responsesMessagesDependencies,
+    defaultResponsesMessagesDependencies,
+  )
   Object.assign(responsesUtilsDependencies, defaultResponsesUtilsDependencies)
 })
 
 describe("responses handler token usage", () => {
+  test("routes a Messages-only Copilot model through the Responses Lite adapter", async () => {
+    state.models = {
+      object: "list",
+      data: [
+        {
+          capabilities: {
+            family: "claude",
+            limits: { max_prompt_tokens: 128000 },
+            object: "model_capabilities",
+            supports: { tool_calls: true },
+            tokenizer: "o200k_base",
+            type: "chat",
+          },
+          id: "claude-test",
+          model_picker_enabled: true,
+          name: "Claude Test",
+          object: "model",
+          preview: false,
+          supported_endpoints: ["/v1/messages"],
+          vendor: "anthropic",
+          version: "test",
+        },
+      ],
+    }
+    const handleMessages = mock(
+      (_context: Context, _payload: AnthropicMessagesPayload) =>
+        Promise.resolve(
+          Response.json({
+            content: [
+              {
+                type: "tool_use",
+                id: "call-patch",
+                name: "apply_patch",
+                input: { input: "*** Begin Patch" },
+              },
+            ],
+            id: "msg-lite",
+            model: "claude-test",
+            role: "assistant",
+            stop_reason: "tool_use",
+            stop_sequence: null,
+            type: "message",
+            usage: { input_tokens: 8, output_tokens: 4 },
+          }),
+        ),
+    )
+    responsesMessagesDependencies.handleCompletionPayload = handleMessages
+
+    const response = await createApp().request("/v1/responses", {
+      body: JSON.stringify({
+        model: "claude-test",
+        input: [
+          {
+            role: "developer",
+            type: "additional_tools",
+            tools: [{ type: "custom", name: "apply_patch" }],
+          },
+          { role: "user", type: "message", content: "Patch it" },
+        ],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    })
+
+    expect(response.status).toBe(200)
+    expect(createResponses).not.toHaveBeenCalled()
+    expect(handleMessages).toHaveBeenCalledTimes(1)
+    expect(handleMessages.mock.calls[0]?.[1].tools?.[0]?.name).toBe(
+      "apply_patch",
+    )
+    const body = (await response.json()) as { output: Array<unknown> }
+    expect(body.output[0]).toEqual(
+      expect.objectContaining({
+        type: "custom_tool_call",
+        call_id: "call-patch",
+        name: "apply_patch",
+        input: "*** Begin Patch",
+      }),
+    )
+  })
+
   test("uses websocket transport by default for dual-endpoint models", async () => {
     state.models = {
       object: "list",

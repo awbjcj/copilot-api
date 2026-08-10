@@ -1,20 +1,15 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test"
 import { Hono } from "hono"
 
-import type { AnthropicMessagesPayload } from "../src/routes/messages/anthropic-types"
+import type { AnthropicMessagesPayload } from "~/lib/types/anthropic"
 
-import {
-  compactSummaryPromptStart,
-  compactTextOnlyGuard,
-} from "../src/lib/compact"
+import { compactSummaryPromptStart, compactTextOnlyGuard } from "~/lib/compact"
 
-const actualStateModule = await import("../src/lib/state")
-const actualConfigModule = await import("../src/lib/config")
-const actualModelsModule = await import("../src/lib/models")
-const actualUtilsModule = await import("../src/lib/utils")
-const { responsesUtilsDependencies } = await import(
-  "../src/routes/responses/utils"
-)
+const actualStateModule = await import("~/lib/state")
+const actualConfigModule = await import("~/lib/config")
+const actualModelsModule = await import("~/lib/models")
+const actualUtilsModule = await import("~/lib/utils")
+const { responsesUtilsDependencies } = await import("~/routes/responses/utils")
 
 const state = {
   ...actualStateModule.state,
@@ -25,6 +20,7 @@ const state = {
 let messagesApiEnabled = true
 let responsesApiWebSocketEnabled = true
 let modelMappings: Record<string, string> = {}
+let claudeAutoModel: string | undefined
 type SelectedModel = {
   id: string
   supported_endpoints?: Array<string>
@@ -69,6 +65,7 @@ await mock.module("~/lib/state", () => ({
 }))
 await mock.module("~/lib/config", () => ({
   ...actualConfigModule,
+  getClaudeAutoModel: () => claudeAutoModel,
   getSmallModel: () => "small-model",
   isMessagesApiEnabled: () => messagesApiEnabled,
   isResponsesApiWebSocketEnabled: () => responsesApiWebSocketEnabled,
@@ -82,7 +79,7 @@ await mock.module("~/lib/utils", () => ({
   ...actualUtilsModule,
 }))
 const { handleCompletion, messagesFlowHandlers } = await import(
-  "../src/routes/messages/handler"
+  "~/routes/messages/handler"
 )
 
 const defaultMessagesFlowHandlers = { ...messagesFlowHandlers }
@@ -108,6 +105,7 @@ beforeEach(() => {
   messagesApiEnabled = true
   responsesApiWebSocketEnabled = true
   modelMappings = {}
+  claudeAutoModel = undefined
   selectedModel = undefined
 
   responsesUtilsDependencies.isResponsesApiWebSocketEnabled = () =>
@@ -694,5 +692,38 @@ describe("messages handler orchestration", () => {
       agent_type: "Explore",
     })
     expect(options.anthropicBetaHeader).toBe("warmup-beta")
+  })
+
+  test("keeps the Claude auto model override ahead of warmup selection", async () => {
+    claudeAutoModel = "auto-model"
+    selectedModel = {
+      id: "auto-model",
+      supported_endpoints: ["/v1/messages"],
+    }
+
+    const app = createApp()
+    const response = await app.request("/", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "anthropic-beta": "warmup-beta",
+      },
+      body: JSON.stringify(
+        createPayload({
+          stop_sequences: ["</block>"],
+          system: [
+            {
+              type: "text",
+              text: "You are a security monitor for autonomous AI coding agents. Check the changes.",
+            },
+          ],
+        }),
+      ),
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe("messages")
+    expect(findEndpointModel).toHaveBeenCalledTimes(1)
+    expect(findEndpointModel).toHaveBeenCalledWith("auto-model")
   })
 })

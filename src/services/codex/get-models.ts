@@ -1,4 +1,4 @@
-import type { Model, ModelsResponse } from "~/services/copilot/get-models"
+import type { Model, ModelsResponse } from "~/lib/types/models"
 import {
   buildCodexRequestHeaders,
   CODEX_API_BASE_URL,
@@ -65,6 +65,7 @@ const CODEX_MODELS: Array<CodexModelDefinition> = [
 ]
 
 const CODEX_MODELS_URL = `${CODEX_API_BASE_URL}/codex/models`
+const CODEX_MODELS_TIMEOUT_MS = 15_000
 
 export function resolveCodexModelsUrl(requestUrl: string): string {
   const upstreamUrl = new URL(CODEX_MODELS_URL)
@@ -84,6 +85,7 @@ export async function forwardCodexModels(
   return await fetch(resolveCodexModelsUrl(requestUrl), {
     method: "GET",
     headers,
+    signal: AbortSignal.timeout(CODEX_MODELS_TIMEOUT_MS),
   })
 }
 

@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test"
 import { Hono } from "hono"
 
-import type { ResolvedProviderConfig } from "../src/lib/config"
+import type { ResolvedProviderConfig } from "~/lib/config"
 
-const actualConfigModule = await import("../src/lib/config")
-const actualTokenUsageModule = await import("../src/lib/token-usage")
+const actualConfigModule = await import("~/lib/config")
+const actualTokenUsageModule = await import("~/lib/token-usage")
 
 let providerConfig: ResolvedProviderConfig | null = null
 let modelMappings: Record<string, string> = {}
@@ -41,9 +41,9 @@ await mock.module("~/lib/token-usage", () => ({
   createProviderTokenUsageRecorder: () => noopTokenUsageRecorder,
 }))
 
-const { messageRoutes } = await import("../src/routes/messages/route")
+const { messageRoutes } = await import("~/routes/messages/route")
 const { resolveCountTokensModel } = await import(
-  "../src/routes/messages/count-tokens-handler"
+  "~/routes/messages/count-tokens-handler"
 )
 
 const originalFetch = globalThis.fetch

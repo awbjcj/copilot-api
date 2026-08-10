@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test"
 import { Hono } from "hono"
 
-import { createAuthMiddleware } from "../src/lib/request-auth"
+import { createAuthMiddleware } from "~/lib/request-auth"
 
 let regularApiKeys: Array<string>
 let adminApiKeys: Array<string>

@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test"
 import { Hono } from "hono"
 
-const actualConfigModule = await import("../src/lib/config")
-const actualPathsModule = await import("../src/lib/paths")
+const actualConfigModule = await import("~/lib/config")
+const actualPathsModule = await import("~/lib/paths")
 
 let modelMappings: Record<string, string> = {
   "claude-opus-4-7": "gpt-5-mini",
@@ -20,7 +20,7 @@ await mock.module("~/lib/config", () => ({
   setModelMappings,
 }))
 
-const { configRoutes } = await import("../src/routes/admin/config/route")
+const { configRoutes } = await import("~/routes/admin/config/route")
 
 const createApp = () => {
   const app = new Hono()
@@ -38,6 +38,12 @@ beforeEach(() => {
 })
 
 describe("config model mappings route", () => {
+  test("exposes the alpha search Codex priority setting", () => {
+    expect(typeof actualConfigModule.isAlphaSearchCodexPriorityEnabled()).toBe(
+      "boolean",
+    )
+  })
+
   test("returns the current model mappings snapshot", async () => {
     const app = createApp()
     const response = await app.request("/admin/config/model-mappings")

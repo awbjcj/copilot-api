@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 
-import type { ModelsResponse } from "~/services/copilot/get-models"
+import type { ModelsResponse } from "~/lib/types/models"
 
 export interface State {
   githubToken?: string

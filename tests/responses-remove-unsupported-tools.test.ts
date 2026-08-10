@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test"
 
-import type { ResponsesPayload } from "~/services/copilot/create-responses"
+import type { ResponsesPayload } from "~/lib/types/responses"
 
 import { removeUnsupportedTools } from "~/routes/responses/handler"
 

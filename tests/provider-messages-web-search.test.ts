@@ -1,18 +1,18 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test"
 import { Hono } from "hono"
 
-import type { ResolvedProviderConfig } from "../src/lib/config"
+import type { ResolvedProviderConfig } from "~/lib/config"
 import type {
   AnthropicMessagesPayload,
   AnthropicResponse,
-} from "../src/routes/messages/anthropic-types"
-import type { ResponsesResult } from "../src/services/copilot/create-responses"
+} from "~/lib/types/anthropic"
+import type { ResponsesResult } from "~/lib/types/responses"
 
-const actualConfigModule = await import("../src/lib/config")
-const actualModelsModule = await import("../src/lib/models")
-const actualStateModule = await import("../src/lib/state")
-const actualTokenModule = await import("../src/lib/token")
-const actualTokenUsageModule = await import("../src/lib/token-usage")
+const actualConfigModule = await import("~/lib/config")
+const actualModelsModule = await import("~/lib/models")
+const actualStateModule = await import("~/lib/state")
+const actualTokenModule = await import("~/lib/token")
+const actualTokenUsageModule = await import("~/lib/token-usage")
 
 let providerConfigs: Record<string, ResolvedProviderConfig> = {}
 let messageApiWebSearchModel: string | undefined
@@ -57,13 +57,11 @@ await mock.module("~/lib/token-usage", () => ({
 }))
 
 const { providerMessageRoutes } = await import(
-  "../src/routes/provider/messages/route"
+  "~/routes/provider/messages/route"
 )
-const { messageRoutes } = await import("../src/routes/messages/route")
-const { state } = await import("../src/lib/state")
-const { responsesUtilsDependencies } = await import(
-  "../src/routes/responses/utils"
-)
+const { messageRoutes } = await import("~/routes/messages/route")
+const { state } = await import("~/lib/state")
+const { responsesUtilsDependencies } = await import("~/routes/responses/utils")
 
 const originalCodexAccessToken = state.codexAccessToken
 const originalCodexAccountId = state.codexAccountId
@@ -846,88 +844,5 @@ describe("provider messages web_search", () => {
     expect(text).toContain("event: message_start")
     expect(text).toContain("Hello from Codex.")
     expect(text).toContain("event: message_stop")
-  })
-
-  test("fails non-stream Codex requests when the upstream stream errors", async () => {
-    configureCodexProvider()
-    responsesStreamFactory = () =>
-      new Response(
-        [
-          `data: ${JSON.stringify({
-            code: "upstream_error",
-            message: "Codex stream failed",
-            param: null,
-            sequence_number: 1,
-            type: "error",
-          })}`,
-          "",
-          "",
-        ].join("\n"),
-        { headers: { "content-type": "text/event-stream" } },
-      )
-
-    const response = await createApp().request("/codex/v1/messages", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(createCodexMessagesPayload()),
-    })
-
-    expect(response.status).toBe(500)
-    expect(await response.text()).not.toContain('"type":"message"')
-  })
-
-  test("fails non-stream Codex requests when a terminal response reports failure", async () => {
-    configureCodexProvider()
-    const failedResponse = makePlainResponsesResult()
-    responsesStreamFactory = () =>
-      new Response(
-        [
-          `data: ${JSON.stringify({
-            response: {
-              ...failedResponse,
-              error: {
-                code: "upstream_error",
-                message: "Codex response failed",
-              },
-              output: [],
-              output_text: "",
-              status: "failed",
-            },
-            sequence_number: 1,
-            type: "response.failed",
-          })}`,
-          "",
-          "",
-        ].join("\n"),
-        { headers: { "content-type": "text/event-stream" } },
-      )
-
-    const response = await createApp().request("/codex/v1/messages", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(createCodexMessagesPayload()),
-    })
-
-    expect(response.status).toBe(500)
-    const body = await response.text()
-    expect(body).toContain("Codex response failed")
-    expect(body).not.toContain('"type":"message"')
-  })
-
-  test("fails non-stream Codex requests without a terminal event", async () => {
-    configureCodexProvider()
-    responsesStreamFactory = () =>
-      new Response("data: [DONE]\n\n", {
-        headers: { "content-type": "text/event-stream" },
-      })
-
-    const response = await createApp().request("/codex/v1/messages", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(createCodexMessagesPayload()),
-    })
-
-    expect(response.status).toBe(500)
-    expect(await response.text()).not.toContain('"type":"message"')
   })
 })

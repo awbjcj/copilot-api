@@ -3,7 +3,7 @@ import { Hono } from "hono"
 import { forwardError } from "~/lib/error"
 import { createHandlerLogger, debugJsonAsync } from "~/lib/logger"
 import { resolveProviderConfig } from "~/lib/provider-resolver"
-import { handleCodexAlphaSearch } from "~/routes/alpha-search/route"
+import { handleAlphaSearchRequest } from "~/routes/alpha-search/route"
 import {
   createProviderProxyResponse,
   forwardProviderAlphaSearch,
@@ -31,7 +31,7 @@ providerAlphaSearchRoutes.post("/", async (c) => {
     }
 
     if (providerConfig.name === "codex") {
-      return await handleCodexAlphaSearch(c, providerConfig)
+      return await handleAlphaSearchRequest(c, providerConfig)
     }
 
     await debugJsonAsync(logger, "provider.alpha_search.request", async () => ({
