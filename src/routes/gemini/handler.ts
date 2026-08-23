@@ -6,8 +6,8 @@ import { streamSSE, type SSEMessage } from "hono/streaming"
 import type {
   ChatCompletionChunk,
   ChatCompletionResponse,
-} from "~/services/copilot/create-chat-completions"
-import type { Model } from "~/services/copilot/get-models"
+} from "~/lib/types/chat-completions"
+import type { Model } from "~/lib/types/models"
 
 import { resolveMappedModel } from "~/lib/config"
 import { createHandlerLogger, debugJson } from "~/lib/logger"

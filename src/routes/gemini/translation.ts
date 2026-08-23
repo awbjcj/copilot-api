@@ -4,7 +4,7 @@ import type {
   Message,
   Tool,
   ToolCall,
-} from "~/services/copilot/create-chat-completions"
+} from "~/lib/types/chat-completions"
 
 import type {
   GeminiErrorResponse,

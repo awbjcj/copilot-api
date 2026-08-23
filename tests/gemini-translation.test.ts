@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import type { ChatCompletionResponse } from "../src/services/copilot/create-chat-completions"
+import type { ChatCompletionResponse } from "../src/lib/types/chat-completions"
 
 import type { GeminiRequest } from "../src/routes/gemini/gemini-types"
 import {
