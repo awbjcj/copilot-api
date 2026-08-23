@@ -150,6 +150,16 @@ const zh: Locale = {
     autoStartServerDesc: '授权信息加载完成后，使用上次的端口自动启动 API 服务',
     minimizeToTray: '最小化到托盘',
     minimizeToTrayDesc: '关闭窗口时隐藏到系统托盘，不退出程序',
+    sectionSecurity: '安全',
+    serverKeysNote:
+      'API Keys 和 Admin Key 保存在 config.json 中，修改后需重启正在运行的服务才能生效。',
+    apiKeysLabel: 'API Keys',
+    apiKeysDesc:
+      '每行一个 API Key。客户端通过 x-api-key 或 Authorization: Bearer 使用其中任意一个 Key 认证。',
+    adminKeyLabel: 'Admin Key',
+    adminKeyPlaceholder: '填写新的 Admin Key（可选）',
+    adminKeyDesc:
+      '用于 /admin/* 接口。留空会移除该字段，下次启动服务时自动生成新的。',
     sectionNetwork: '网络',
     proxySystemNote:
       '默认使用系统代理。选择自定义代理后，Electron 和新启动的本地服务会使用下方配置；选择不使用代理后将直连网络。已运行的服务需重启后生效。',

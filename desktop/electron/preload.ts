@@ -39,6 +39,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
       pageSize,
     ),
   getServerAuthInfo: () => ipcRenderer.invoke('server:get-auth-info'),
+  getServerKeys: () => ipcRenderer.invoke('auth:get-server-keys'),
+  saveServerKeys: (keys: unknown) =>
+    ipcRenderer.invoke('auth:save-server-keys', keys),
   getLogs: () => ipcRenderer.invoke('server:get-logs'),
 
   onAuthSuccess: (callback: (result: unknown) => void) => {

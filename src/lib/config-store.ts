@@ -4,6 +4,7 @@ import fs from "node:fs"
 
 import type { TokenUsagePricingConfig } from "~/lib/token-usage/pricing"
 
+import { writeFileAtomically } from "./atomic-file"
 import { PATHS } from "./paths"
 
 export interface AppConfig {
@@ -23,6 +24,7 @@ export interface AppConfig {
   >
   useMessagesApi?: boolean
   useResponsesApiWebSocket?: boolean
+  responsesTransport?: ResponsesTransportConfig
   anthropicApiKey?: string
   useResponsesApiWebSearch?: boolean
   alphaSearchCodexPriority?: boolean
@@ -50,27 +52,39 @@ export interface ContextManagementConfig {
   responses?: boolean
 }
 
+export interface ResponsesTransportConfig {
+  headersTimeoutMsV2?: number
+  streamInactivityTimeoutMs?: number
+  websocketMaxBufferedBytes?: number
+  websocketMaxBufferedMessages?: number
+  websocketOpenTimeoutMs?: number
+  websocketPoolIdleTimeoutMs?: number
+}
+
+export const defaultResponsesTransportConfig = {
+  headersTimeoutMsV2: 5 * 60 * 1000,
+  streamInactivityTimeoutMs: 5 * 60 * 1000,
+  websocketMaxBufferedBytes: 8 * 1024 * 1024,
+  websocketMaxBufferedMessages: 1024,
+  websocketOpenTimeoutMs: 30_000,
+  websocketPoolIdleTimeoutMs: 60_000,
+} satisfies Required<ResponsesTransportConfig>
+
 export interface ModelConfig {
   temperature?: number
   topP?: number
   topK?: number
   extraBody?: Record<string, unknown>
   contextCache?: boolean
-  pricing?: TokenUsagePricingConfig
-  supportPdf?: boolean
-  toolContentSupportType?: Array<ToolContentSupportType>
-  type?: ProviderType
-  codex?: CodexModelCapabilitiesConfig
-}
-
-export interface CodexModelCapabilitiesConfig {
-  enabled?: boolean
   contextWindow?: number
   maxOutputTokens?: number
   inputModalities?: Array<"text" | "image">
   reasoningEfforts?: Array<CodexReasoningEffort>
   defaultReasoningEffort?: CodexReasoningEffort
-  supportsParallelToolCalls?: boolean
+  pricing?: TokenUsagePricingConfig
+  supportPdf?: boolean
+  toolContentSupportType?: Array<ToolContentSupportType>
+  type?: ProviderType
 }
 
 export type CodexReasoningEffort =
@@ -136,6 +150,7 @@ export const defaultConfig: AppConfig = {
   },
   useMessagesApi: true,
   useResponsesApiWebSocket: true,
+  responsesTransport: defaultResponsesTransportConfig,
   useResponsesApiWebSearch: true,
   alphaSearchCodexPriority: true,
   alphaSearchModel: "gpt-5-mini",
@@ -177,11 +192,9 @@ function ensureConfigFile(): void {
   try {
     fs.accessSync(PATHS.CONFIG_PATH, fs.constants.R_OK | fs.constants.W_OK)
   } catch {
-    fs.mkdirSync(PATHS.APP_DIR, { recursive: true })
-    fs.writeFileSync(
+    writeFileAtomically(
       PATHS.CONFIG_PATH,
       `${JSON.stringify(defaultConfig, null, 2)}\n`,
-      "utf8",
     )
     try {
       fs.chmodSync(PATHS.CONFIG_PATH, 0o600)
@@ -196,10 +209,9 @@ function readConfigFromDisk(): AppConfig {
   try {
     const raw = fs.readFileSync(PATHS.CONFIG_PATH, "utf8")
     if (!raw.trim()) {
-      fs.writeFileSync(
+      writeFileAtomically(
         PATHS.CONFIG_PATH,
         `${JSON.stringify(defaultConfig, null, 2)}\n`,
-        "utf8",
       )
       return defaultConfig
     }
@@ -229,12 +241,25 @@ export function readEditableConfigFromDisk(): AppConfig {
 }
 
 export function writeConfigToDisk(config: AppConfig): void {
-  fs.mkdirSync(PATHS.APP_DIR, { recursive: true })
-  fs.writeFileSync(
-    PATHS.CONFIG_PATH,
-    `${JSON.stringify(config, null, 2)}\n`,
-    "utf8",
-  )
+  writeFileAtomically(PATHS.CONFIG_PATH, `${JSON.stringify(config, null, 2)}\n`)
+}
+
+export function setConfiguredApiKeys(apiKeys: Array<string>): Array<string> {
+  const normalizedKeys = apiKeys
+    .map((key) => key.trim())
+    .filter((key) => key.length > 0)
+  const uniqueKeys = [...new Set(normalizedKeys)]
+
+  const editableConfig = readEditableConfigFromDisk()
+  writeConfigToDisk({
+    ...editableConfig,
+    auth: {
+      ...editableConfig.auth,
+      apiKeys: uniqueKeys,
+    },
+  })
+  reloadConfig()
+  return [...uniqueKeys]
 }
 
 function mergeDefaultConfig(config: AppConfig): {
@@ -251,6 +276,9 @@ function mergeDefaultConfig(config: AppConfig): {
   const defaultModelReasoningEfforts = defaultConfig.modelReasoningEfforts ?? {}
   const contextManagement = normalizeContextManagementConfig(
     config.contextManagement,
+  )
+  const responsesTransport = normalizeResponsesTransportConfig(
+    config.responsesTransport,
   )
   const defaultContextManagementConfig = defaultConfig.contextManagement ?? {}
 
@@ -273,12 +301,18 @@ function mergeDefaultConfig(config: AppConfig): {
   const hasResponsesApiCompactThresholdChanges =
     missingResponsesApiCompactThresholdModels.length > 0
   const hasContextManagementChanges = missingContextManagementKeys.length > 0
+  const hasResponsesTransportChanges = Object.entries(responsesTransport).some(
+    ([key, value]) =>
+      config.responsesTransport?.[key as keyof ResponsesTransportConfig]
+      !== value,
+  )
 
   if (
     !hasExtraPromptChanges
     && !hasReasoningEffortChanges
     && !hasResponsesApiCompactThresholdChanges
     && !hasContextManagementChanges
+    && !hasResponsesTransportChanges
   ) {
     return { mergedConfig: config, changed: false }
   }
@@ -302,6 +336,7 @@ function mergeDefaultConfig(config: AppConfig): {
         ...defaultModelReasoningEfforts,
         ...modelReasoningEfforts,
       },
+      responsesTransport,
     },
     changed: true,
   }
@@ -403,6 +438,49 @@ export function isMessagesApiEnabled(): boolean {
 export function isResponsesApiWebSocketEnabled(): boolean {
   const config = getConfig()
   return config.useResponsesApiWebSocket ?? true
+}
+
+export function getResponsesTransportConfig() {
+  const { headersTimeoutMsV2, ...config } = normalizeResponsesTransportConfig(
+    getConfig().responsesTransport,
+  )
+  return { headersTimeoutMs: headersTimeoutMsV2, ...config }
+}
+
+export const normalizeResponsesTransportConfig = (
+  configured: ResponsesTransportConfig | undefined,
+): Required<ResponsesTransportConfig> => ({
+  headersTimeoutMsV2: positiveIntegerOrDefault(
+    configured?.headersTimeoutMsV2,
+    defaultResponsesTransportConfig.headersTimeoutMsV2,
+  ),
+  streamInactivityTimeoutMs: positiveIntegerOrDefault(
+    configured?.streamInactivityTimeoutMs,
+    defaultResponsesTransportConfig.streamInactivityTimeoutMs,
+  ),
+  websocketMaxBufferedBytes: positiveIntegerOrDefault(
+    configured?.websocketMaxBufferedBytes,
+    defaultResponsesTransportConfig.websocketMaxBufferedBytes,
+  ),
+  websocketMaxBufferedMessages: positiveIntegerOrDefault(
+    configured?.websocketMaxBufferedMessages,
+    defaultResponsesTransportConfig.websocketMaxBufferedMessages,
+  ),
+  websocketOpenTimeoutMs: positiveIntegerOrDefault(
+    configured?.websocketOpenTimeoutMs,
+    defaultResponsesTransportConfig.websocketOpenTimeoutMs,
+  ),
+  websocketPoolIdleTimeoutMs: positiveIntegerOrDefault(
+    configured?.websocketPoolIdleTimeoutMs,
+    defaultResponsesTransportConfig.websocketPoolIdleTimeoutMs,
+  ),
+})
+
+const positiveIntegerOrDefault = (value: unknown, fallback: number): number => {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback
+
+  const normalized = Math.floor(value)
+  return normalized > 0 ? normalized : fallback
 }
 
 export function getAnthropicApiKey(): string | undefined {

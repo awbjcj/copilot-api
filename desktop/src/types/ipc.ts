@@ -56,6 +56,17 @@ export interface ServerAuthInfo {
   headerValue?: string
 }
 
+export interface ServerKeysConfig {
+  apiKeys: string[]
+  adminApiKey: string
+}
+
+export interface ServerKeysConfigUpdate {
+  apiKeys?: string[]
+  // undefined = leave the field untouched, '' or null = remove the admin key
+  adminApiKey?: string | null
+}
+
 export interface ModelMappingsConfig {
   configPath: string
   modelMappings: Record<string, string>
@@ -215,6 +226,10 @@ declare global {
         pageSize: number,
       ) => Promise<unknown>
       getServerAuthInfo: () => Promise<ServerAuthInfo>
+      getServerKeys: () => Promise<ServerKeysConfig>
+      saveServerKeys: (
+        keys: ServerKeysConfigUpdate,
+      ) => Promise<ServerKeysConfig>
       getLogs: () => Promise<string[]>
       onAuthSuccess: (callback: (result: AuthResult) => void) => () => void
       onServerStatus: (callback: (status: ServerStatus) => void) => () => void

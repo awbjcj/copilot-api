@@ -156,6 +156,16 @@ const en: Locale = {
       'Automatically start the API server on the last used port after authorization loads',
     minimizeToTray: 'Minimize to tray',
     minimizeToTrayDesc: "Hide to system tray when closing, don't quit",
+    sectionSecurity: 'Security',
+    serverKeysNote:
+      'API Keys and Admin Key are stored in config.json. Restart the running service to apply changes.',
+    apiKeysLabel: 'API Keys',
+    apiKeysDesc:
+      'One API key per line. Clients authenticate with one of these keys via x-api-key or Authorization: Bearer.',
+    adminKeyLabel: 'Admin Key',
+    adminKeyPlaceholder: 'Enter a new Admin Key (optional)',
+    adminKeyDesc:
+      'Used for /admin/* endpoints. Leave empty to remove it; the next server start generates a new one automatically.',
     sectionNetwork: 'Network',
     proxySystemNote:
       'System proxy is used by default. When custom proxy is selected, Electron and newly started local services use the settings below; when no proxy is selected, network requests connect directly. Restart any running service to apply changes.',

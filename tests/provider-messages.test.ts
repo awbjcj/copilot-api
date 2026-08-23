@@ -3,6 +3,7 @@ import { Hono } from "hono"
 
 import type { ResolvedProviderConfig } from "~/lib/config"
 import type { UsageTokens } from "~/lib/token-usage"
+import { ResponsesStreamInactivityTimeoutError } from "~/services/responses-http"
 
 const actualConfigModule = await import("~/lib/config")
 const actualTokenUsageModule = await import("~/lib/token-usage")
@@ -153,6 +154,18 @@ const createThinkingStreamResponse = (
   })
 }
 
+const createFailingResponsesStream = (): Response =>
+  new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.error(new ResponsesStreamInactivityTimeoutError(25))
+      },
+    }),
+    {
+      headers: { "content-type": "text/event-stream; charset=utf-8" },
+    },
+  )
+
 const parseStreamData = (text: string): Array<Record<string, unknown>> =>
   text
     .split("\n")
@@ -285,5 +298,157 @@ describe("provider Messages Anthropic forwarding", () => {
       input_tokens: 4,
       output_tokens: 3,
     })
+  })
+
+  test("emits an Anthropic error event when the stream ends without message_stop", async () => {
+    upstreamResponseFactory = () => {
+      const chunks: Array<string> = []
+      const appendEvent = (event: string, data: unknown): void => {
+        chunks.push(`event: ${event}`)
+        chunks.push(
+          `data: ${typeof data === "string" ? data : JSON.stringify(data)}`,
+        )
+        chunks.push("")
+      }
+      appendEvent("message_start", {
+        message: {
+          content: [],
+          id: "msg_cut",
+          model: "claude-sonnet-4",
+          role: "assistant",
+          stop_reason: null,
+          stop_sequence: null,
+          type: "message",
+          usage: { input_tokens: 4, output_tokens: 0 },
+        },
+        type: "message_start",
+      })
+      appendEvent("content_block_delta", {
+        delta: { text: "partial", type: "text_delta" },
+        index: 0,
+        type: "content_block_delta",
+      })
+      // The upstream connection drops here: no message_stop, no [DONE].
+      return new Response(chunks.join("\n"), {
+        headers: { "content-type": "text/event-stream; charset=utf-8" },
+      })
+    }
+
+    const response = await createApp().request("/openrouter/v1/messages", {
+      body: JSON.stringify(createMessagesPayload({ stream: true })),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    })
+
+    expect(response.status).toBe(200)
+    const events = parseStreamData(await response.text())
+    const eventTypes = events.map((event) => event.type)
+
+    expect(eventTypes).toContain("message_start")
+    expect(eventTypes).not.toContain("message_stop")
+    expect(events.at(-1)).toEqual({
+      error: {
+        message: "An unexpected error occurred during streaming.",
+        type: "api_error",
+      },
+      type: "error",
+    })
+  })
+
+  test("emits an Anthropic error event when the upstream connection fails", async () => {
+    upstreamResponseFactory = () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.error(new Error("upstream connection reset"))
+          },
+        }),
+        {
+          headers: { "content-type": "text/event-stream; charset=utf-8" },
+        },
+      )
+
+    const response = await createApp().request("/openrouter/v1/messages", {
+      body: JSON.stringify(createMessagesPayload({ stream: true })),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    })
+
+    expect(response.status).toBe(200)
+    expect(parseStreamData(await response.text())).toEqual([
+      {
+        error: {
+          message: "An unexpected error occurred during streaming.",
+          type: "api_error",
+        },
+        type: "error",
+      },
+    ])
+  })
+
+  test("forwards an upstream error event without appending another", async () => {
+    const upstreamError = {
+      error: { message: "overloaded", type: "overloaded_error" },
+      type: "error",
+    }
+    upstreamResponseFactory = () =>
+      new Response(`event: error\ndata: ${JSON.stringify(upstreamError)}\n\n`, {
+        headers: { "content-type": "text/event-stream; charset=utf-8" },
+      })
+
+    const response = await createApp().request("/openrouter/v1/messages", {
+      body: JSON.stringify(createMessagesPayload({ stream: true })),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    })
+
+    expect(response.status).toBe(200)
+    expect(parseStreamData(await response.text())).toEqual([upstreamError])
+  })
+
+  test("does not append an error event after a normal completion", async () => {
+    upstreamResponseFactory = () => createThinkingStreamResponse("signed")
+
+    const response = await createApp().request("/openrouter/v1/messages", {
+      body: JSON.stringify(createMessagesPayload({ stream: true })),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    })
+
+    expect(response.status).toBe(200)
+    const eventTypes = parseStreamData(await response.text()).map(
+      (event) => event.type,
+    )
+
+    expect(eventTypes).toContain("message_stop")
+    expect(eventTypes).not.toContain("error")
+  })
+})
+
+describe("provider Messages Responses forwarding", () => {
+  test("emits an Anthropic error event and records usage when the upstream stream fails", async () => {
+    providerConfig = {
+      ...createProviderConfig("responses"),
+      type: "openai-responses",
+    }
+    upstreamResponseFactory = createFailingResponsesStream
+
+    const response = await createApp().request("/responses/v1/messages", {
+      body: JSON.stringify(createMessagesPayload({ stream: true })),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    })
+
+    expect(response.status).toBe(200)
+    expect(parseStreamData(await response.text())).toEqual([
+      {
+        error: {
+          message: "Responses upstream stream was inactive for 25ms",
+          type: "api_error",
+        },
+        type: "error",
+      },
+    ])
+    expect(recordedUsages).toEqual([{}])
   })
 })

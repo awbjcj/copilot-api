@@ -9,7 +9,6 @@ import {
   type AnthropicStreamEventData,
   type AnthropicStreamState,
 } from "~/lib/types/anthropic"
-import { THINKING_TEXT } from "./non-stream-translation"
 import { mapOpenAIStopReasonToAnthropic } from "./utils"
 
 function isToolBlockOpen(state: AnthropicStreamState): boolean {
@@ -80,6 +79,7 @@ function completePendingMessage(
     type: "message_stop",
   })
   state.pendingMessageDelta = undefined
+  state.messageCompleted = true
 }
 
 function handleFinish(
@@ -396,7 +396,7 @@ function handleReasoningOpaque(
         index: state.contentBlockIndex,
         delta: {
           type: "thinking_delta",
-          thinking: THINKING_TEXT, // Compatible with opencode, it will filter out blocks where the thinking text is empty, so we add a default thinking text here
+          thinking: "",
         },
       },
       {

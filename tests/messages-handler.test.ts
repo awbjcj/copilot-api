@@ -78,9 +78,8 @@ await mock.module("~/lib/models", () => ({
 await mock.module("~/lib/utils", () => ({
   ...actualUtilsModule,
 }))
-const { handleCompletion, messagesFlowHandlers } = await import(
-  "~/routes/messages/handler"
-)
+const { handleCompletion, handleCompletionPayload, messagesFlowHandlers } =
+  await import("~/routes/messages/handler")
 
 const defaultMessagesFlowHandlers = { ...messagesFlowHandlers }
 const defaultResponsesUtilsDependencies = { ...responsesUtilsDependencies }
@@ -725,5 +724,44 @@ describe("messages handler orchestration", () => {
     expect(await response.text()).toBe("messages")
     expect(findEndpointModel).toHaveBeenCalledTimes(1)
     expect(findEndpointModel).toHaveBeenCalledWith("auto-model")
+  })
+
+  test("prefers dispatch-provided session, request, and subagent context", async () => {
+    selectedModel = {
+      id: "messages-model",
+      supported_endpoints: ["/v1/messages"],
+    }
+
+    const dispatchMarker = {
+      session_id: "dispatch-sub-session",
+      agent_id: "dispatch-agent",
+      agent_type: "collab_spawn",
+    }
+
+    const app = new Hono()
+    app.post("/", (c) =>
+      handleCompletionPayload(c, createPayload(), {
+        sessionId: "dispatch-session",
+        requestId: "dispatch-request",
+        subagentMarker: dispatchMarker,
+      }),
+    )
+
+    const response = await app.request("/", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-session-id": "header-session",
+      },
+      body: JSON.stringify(createPayload()),
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe("messages")
+
+    const options = handleWithMessagesApi.mock.calls[0][2]
+    expect(options.sessionId).toBe("dispatch-session")
+    expect(options.requestId).toBe("dispatch-request")
+    expect(options.subagentMarker).toEqual(dispatchMarker)
   })
 })

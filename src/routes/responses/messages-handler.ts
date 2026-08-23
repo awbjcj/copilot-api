@@ -4,9 +4,11 @@ import { streamSSE } from "hono/streaming"
 
 import { COMPACT_REQUEST } from "~/lib/compact"
 import { createHandlerLogger, debugJson } from "~/lib/logger"
+import type { SubagentMarker } from "~/lib/subagent"
 import type { AnthropicResponse } from "~/lib/types/anthropic"
 import type { ResponsesPayload } from "~/lib/types/responses"
 import { handleCompletionPayload } from "~/routes/messages/handler"
+import { isCodexUserAgent } from "~/routes/models/codex-models"
 
 import {
   responsesResultToStreamEvents,
@@ -31,6 +33,9 @@ export async function handleResponsesViaMessages(
     payload: ResponsesPayload
     publicModel: string
     targetModel: string
+    subagentMarker?: SubagentMarker | null
+    requestId?: string
+    sessionId?: string
   },
 ): Promise<Response> {
   try {
@@ -39,6 +44,7 @@ export async function handleResponsesViaMessages(
       {
         model: options.targetModel,
         publicModel: options.publicModel,
+        toolCallTips: isCodexUserAgent(c.req.header("user-agent")),
       },
     )
     const context: MessagesResponseTranslationContext = translation
@@ -47,6 +53,7 @@ export async function handleResponsesViaMessages(
       payload: translation.messagesPayload,
       publicModel: options.publicModel,
       targetModel: options.targetModel,
+      userAgent: c.req.header("user-agent") ?? "",
     })
 
     const messagesResponse =
@@ -59,6 +66,9 @@ export async function handleResponsesViaMessages(
           skipModelMapping: true,
           skipWebSearch: true,
           usageEndpoint: "responses",
+          subagentMarker: options.subagentMarker,
+          requestId: options.requestId,
+          sessionId: options.sessionId,
         },
       )
 

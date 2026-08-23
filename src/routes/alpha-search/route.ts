@@ -12,7 +12,10 @@ import { forwardError } from "~/lib/error"
 import { createHandlerLogger, debugJsonAsync } from "~/lib/logger"
 import { findEndpointModel } from "~/lib/models"
 import { parseProviderModelAlias } from "~/lib/provider-model"
-import { resolveProviderConfig } from "~/lib/provider-resolver"
+import {
+  ensureConfiguredProviderModelAlias,
+  resolveProviderConfig,
+} from "~/lib/provider-resolver"
 import type {
   AlphaSearchRequest,
   AlphaSearchResponse,
@@ -24,6 +27,17 @@ import { createProviderProxyResponse } from "~/services/providers/provider-proxy
 const logger = createHandlerLogger("alpha-search-handler")
 
 export const alphaSearchRoutes = new Hono()
+
+export const alphaSearchRouteDependencies = {
+  findEndpointModel,
+  forwardCodexAlphaSearch,
+  getAlphaSearchModel,
+  handleAlphaSearchResponses,
+  isAlphaSearchCodexPriorityEnabled,
+  resolveEffectiveProviderType,
+  resolveMappedModel,
+  resolveProviderConfig,
+}
 
 function parseDebugBody<T>(body: string): T | string {
   try {
@@ -40,7 +54,8 @@ async function forwardCodexAlphaSearchRequest(
     body: parseDebugBody<AlphaSearchRequest>(await request.clone().text()),
   }))
 
-  const upstreamResponse = await forwardCodexAlphaSearch(request)
+  const upstreamResponse =
+    await alphaSearchRouteDependencies.forwardCodexAlphaSearch(request)
   await debugJsonAsync(logger, "alpha_search.codex.response", async () => ({
     body: parseDebugBody<AlphaSearchResponse>(
       await upstreamResponse.clone().text(),
@@ -72,7 +87,8 @@ async function handleCodexRequest(
   resolvedProviderConfig?: ResolvedProviderConfig,
 ): Promise<Response> {
   const codexProviderConfig =
-    resolvedProviderConfig ?? (await resolveProviderConfig("codex"))
+    resolvedProviderConfig
+    ?? (await alphaSearchRouteDependencies.resolveProviderConfig("codex"))
   if (!codexProviderConfig) {
     return c.json(
       {
@@ -138,7 +154,8 @@ export async function handleAlphaSearchRequest(
 
   const requestedModel = payload.model
 
-  payload.model = resolveMappedModel(requestedModel)
+  payload.model =
+    alphaSearchRouteDependencies.resolveMappedModel(requestedModel)
   if (payload.model !== requestedModel) {
     consola.debug(
       `Resolved model mapping: ${requestedModel} -> ${payload.model}`,
@@ -157,8 +174,9 @@ export async function handleAlphaSearchRequest(
     }
   }
 
-  if (isAlphaSearchCodexPriorityEnabled()) {
-    const codexProviderConfig = await resolveProviderConfig("codex")
+  if (alphaSearchRouteDependencies.isAlphaSearchCodexPriorityEnabled()) {
+    const codexProviderConfig =
+      await alphaSearchRouteDependencies.resolveProviderConfig("codex")
     if (codexProviderConfig) {
       if (!payload.model.startsWith("gpt")) {
         payload.model = "gpt-5.6-luna"
@@ -173,14 +191,15 @@ export async function handleAlphaSearchRequest(
     resolvedRequestedModel,
   )
   if (messagesBackedModel) {
-    const searchModel = getAlphaSearchModel()
+    const searchModel = alphaSearchRouteDependencies.getAlphaSearchModel()
     if (!searchModel) {
       return invalidRequest(
         c,
         "alphaSearchModel is disabled; Messages-backed Codex models require a native Responses search model",
       )
     }
-    const resolvedSearchModel = resolveMappedModel(searchModel)
+    const resolvedSearchModel =
+      alphaSearchRouteDependencies.resolveMappedModel(searchModel)
     if (!(await isNativeResponsesModel(resolvedSearchModel))) {
       return invalidRequest(
         c,
@@ -206,13 +225,20 @@ export async function handleAlphaSearchRequest(
     messagesBackedModel ? payload.model : requestedModel
 
   if (providerModelAlias) {
-    return await handleAlphaSearchResponses(c, {
-      provider: providerModelAlias.provider,
-      request: payload,
-    })
+    const configuredProviderModelAlias =
+      await ensureConfiguredProviderModelAlias(
+        providerModelAlias,
+        alphaSearchRouteDependencies.resolveProviderConfig,
+      )
+    if (configuredProviderModelAlias) {
+      return await alphaSearchRouteDependencies.handleAlphaSearchResponses(c, {
+        provider: providerModelAlias.provider,
+        request: payload,
+      })
+    }
   }
 
-  return await handleAlphaSearchResponses(c, {
+  return await alphaSearchRouteDependencies.handleAlphaSearchResponses(c, {
     request: {
       ...payload,
       model: fallbackRequestedModel,
@@ -223,18 +249,24 @@ export async function handleAlphaSearchRequest(
 async function isMessagesBackedModel(model: string): Promise<boolean> {
   const providerAlias = parseProviderModelAlias(model)
   if (providerAlias) {
-    const providerConfig = await resolveProviderConfig(providerAlias.provider)
+    const providerConfig =
+      await alphaSearchRouteDependencies.resolveProviderConfig(
+        providerAlias.provider,
+      )
     if (!providerConfig) return false
-    const effectiveType = resolveEffectiveProviderType(
-      providerConfig,
-      providerAlias.model,
-    )
+    const effectiveType =
+      alphaSearchRouteDependencies.resolveEffectiveProviderType(
+        providerConfig,
+        providerAlias.model,
+      )
     return (
       effectiveType === "anthropic" || effectiveType === "openai-compatible"
     )
   }
 
-  const endpoints = findEndpointModel(model)?.supported_endpoints ?? []
+  const endpoints =
+    alphaSearchRouteDependencies.findEndpointModel(model)?.supported_endpoints
+    ?? []
   return (
     (endpoints.includes("/v1/messages")
       || endpoints.includes("/chat/completions"))
@@ -246,15 +278,22 @@ async function isMessagesBackedModel(model: string): Promise<boolean> {
 async function isNativeResponsesModel(model: string): Promise<boolean> {
   const providerAlias = parseProviderModelAlias(model)
   if (providerAlias) {
-    const providerConfig = await resolveProviderConfig(providerAlias.provider)
+    const providerConfig =
+      await alphaSearchRouteDependencies.resolveProviderConfig(
+        providerAlias.provider,
+      )
     return (
       providerConfig !== null
-      && resolveEffectiveProviderType(providerConfig, providerAlias.model)
-        === "openai-responses"
+      && alphaSearchRouteDependencies.resolveEffectiveProviderType(
+        providerConfig,
+        providerAlias.model,
+      ) === "openai-responses"
     )
   }
 
-  const endpoints = findEndpointModel(model)?.supported_endpoints ?? []
+  const endpoints =
+    alphaSearchRouteDependencies.findEndpointModel(model)?.supported_endpoints
+    ?? []
   return endpoints.includes("/responses") || endpoints.includes("ws:/responses")
 }
 

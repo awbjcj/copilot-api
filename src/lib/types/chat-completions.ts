@@ -128,6 +128,7 @@ export interface ChatCompletionsPayload {
   } | null
   thinking_budget?: number
   reasoning_effort?: string
+  prompt_cache_key?: string | null
   top_k?: number | null
   parallel_tool_calls?: boolean | null
 }
@@ -138,6 +139,7 @@ export interface Tool {
     name: string
     description?: string
     parameters: Record<string, unknown>
+    strict?: boolean
   }
 }
 

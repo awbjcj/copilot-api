@@ -39,6 +39,18 @@ export function getConfiguredApiKeys(): Array<string> {
   return normalizeApiKeys(config.auth?.apiKeys)
 }
 
+export function getMissingApiKeysMessage(): string | null {
+  const apiKeys = getConfiguredApiKeys()
+  if (apiKeys.length > 0) {
+    return null
+  }
+
+  return [
+    "Requests currently bypass authentication.",
+    "Run `npx copilot-api auth keys --add <key>` to enable API key auth.",
+  ].join(" ")
+}
+
 function normalizeApiKey(apiKey: unknown): string | null {
   if (typeof apiKey !== "string") {
     return null

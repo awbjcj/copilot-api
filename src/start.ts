@@ -13,6 +13,7 @@ import { getLatestModelForFamily } from "./lib/models"
 import { initOpencodeVersion } from "./lib/opencode"
 import { ensurePaths } from "./lib/paths"
 import { initProxyFromEnv } from "./lib/proxy"
+import { getMissingApiKeysMessage } from "./lib/request-auth"
 import { generateEnvScript } from "./lib/shell"
 import { state } from "./lib/state"
 import { logUser, setupCopilotToken } from "./lib/token"
@@ -102,6 +103,9 @@ function runClaudeCode(serverUrl: string): void {
       CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION: "false",
       CLAUDE_CODE_DISABLE_TERMINAL_TITLE: "true",
       CLAUDE_CODE_ENABLE_AWAY_SUMMARY: "0",
+      CLAUDE_CODE_TOTAL_TOKENS_REMINDER: "off",
+      CLAUDE_CODE_EFFORT_LEVEL: "max",
+      MCP_CONNECT_TIMEOUT_MS: "20000",
     },
     "claude",
   )
@@ -152,6 +156,11 @@ export async function runServer(options: RunServerOptions): Promise<void> {
   consola.options.throttle = 0
 
   mergeConfigWithDefaults()
+
+  const missingApiKeysMessage = getMissingApiKeysMessage()
+  if (missingApiKeysMessage) {
+    consola.info(missingApiKeysMessage)
+  }
 
   await initOpencodeVersion()
 

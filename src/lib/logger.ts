@@ -24,43 +24,12 @@ const logBuffers = new Map<string, Array<string>>()
 let runtimeInitialized = false
 let flushInterval: ReturnType<typeof setInterval> | undefined
 let cleanupInterval: ReturnType<typeof setInterval> | undefined
+let currentLogDateKey: string | undefined
 
 const ensureLogDirectory = () => {
   const logDir = getLogDir()
   if (!fs.existsSync(logDir)) {
     fs.mkdirSync(logDir, { recursive: true })
-  }
-}
-
-const cleanupOldLogs = () => {
-  const logDir = getLogDir()
-  if (!fs.existsSync(logDir)) {
-    return
-  }
-
-  const now = Date.now()
-
-  for (const entry of fs.readdirSync(logDir)) {
-    const filePath = path.join(logDir, entry)
-
-    let stats: fs.Stats
-    try {
-      stats = fs.statSync(filePath)
-    } catch {
-      continue
-    }
-
-    if (!stats.isFile()) {
-      continue
-    }
-
-    if (now - stats.mtimeMs > LOG_RETENTION_MS) {
-      try {
-        fs.rmSync(filePath)
-      } catch {
-        continue
-      }
-    }
   }
 }
 
@@ -88,7 +57,12 @@ const maybeUnref = (timer: ReturnType<typeof setInterval>) => {
 
 const flushBuffer = (filePath: string) => {
   const buffer = logBuffers.get(filePath)
-  if (!buffer || buffer.length === 0) {
+  if (!buffer) {
+    return
+  }
+
+  logBuffers.delete(filePath)
+  if (buffer.length === 0) {
     return
   }
 
@@ -99,8 +73,6 @@ const flushBuffer = (filePath: string) => {
       console.warn("Failed to write handler log", error)
     }
   })
-
-  logBuffers.set(filePath, [])
 }
 
 const flushAllBuffers = () => {
@@ -109,13 +81,91 @@ const flushAllBuffers = () => {
   }
 }
 
+const closeLogFile = async (filePath: string): Promise<void> => {
+  flushBuffer(filePath)
+  const stream = logStreams.get(filePath)
+  logStreams.delete(filePath)
+  logBuffers.delete(filePath)
+
+  if (!stream || stream.closed) {
+    return
+  }
+
+  await new Promise<void>((resolve) => {
+    stream.once("close", resolve)
+    stream.end()
+  })
+}
+
+const closePreviousDateLogFiles = (dateKey: string): void => {
+  if (currentLogDateKey === undefined) {
+    currentLogDateKey = dateKey
+    return
+  }
+  if (currentLogDateKey === dateKey) {
+    return
+  }
+
+  const filePaths = new Set([...logBuffers.keys(), ...logStreams.keys()])
+  currentLogDateKey = dateKey
+  for (const filePath of filePaths) {
+    void closeLogFile(filePath).catch((error) => {
+      console.warn("Failed to rotate handler log", error)
+    })
+  }
+}
+
+const cleanupOldLogs = async (): Promise<void> => {
+  const logDir = getLogDir()
+  if (!fs.existsSync(logDir)) {
+    return
+  }
+
+  const now = Date.now()
+  for (const entry of fs.readdirSync(logDir)) {
+    const filePath = path.join(logDir, entry)
+
+    let stats: fs.Stats
+    try {
+      stats = fs.statSync(filePath)
+    } catch {
+      continue
+    }
+
+    if (!stats.isFile() || now - stats.mtimeMs <= LOG_RETENTION_MS) {
+      continue
+    }
+
+    try {
+      await closeLogFile(filePath)
+    } catch (error) {
+      console.warn(`Failed to close old handler log: ${filePath}`, error)
+      continue
+    }
+
+    try {
+      fs.rmSync(filePath)
+    } catch (error) {
+      console.warn(`Failed to remove old handler log: ${filePath}`, error)
+    }
+  }
+}
+
+const scheduleLogCleanup = (): void => {
+  void cleanupOldLogs().catch((error) => {
+    console.warn("Failed to clean up handler logs", error)
+  })
+}
+
 const flushAndCloseLogStreams = () => {
   flushAllBuffers()
   for (const stream of logStreams.values()) {
     stream.end()
   }
+
   logStreams.clear()
   logBuffers.clear()
+  currentLogDateKey = undefined
 }
 
 // Stops the background timers, flushes and closes all log streams, and resets
@@ -143,12 +193,12 @@ const initializeLoggerRuntime = () => {
   runtimeInitialized = true
 
   ensureLogDirectory()
-  cleanupOldLogs()
+  scheduleLogCleanup()
 
   flushInterval = setInterval(flushAllBuffers, FLUSH_INTERVAL_MS)
   maybeUnref(flushInterval)
 
-  cleanupInterval = setInterval(cleanupOldLogs, CLEANUP_INTERVAL_MS)
+  cleanupInterval = setInterval(scheduleLogCleanup, CLEANUP_INTERVAL_MS)
   maybeUnref(cleanupInterval)
 
   registerProcessCleanup(shutdownLoggerRuntime)
@@ -159,12 +209,15 @@ const getLogStream = (filePath: string): fs.WriteStream => {
 
   let stream = logStreams.get(filePath)
   if (!stream || stream.destroyed) {
-    stream = fs.createWriteStream(filePath, { flags: "a" })
-    logStreams.set(filePath, stream)
+    const createdStream = fs.createWriteStream(filePath, { flags: "a" })
+    stream = createdStream
+    logStreams.set(filePath, createdStream)
 
-    stream.on("error", (error: unknown) => {
+    createdStream.on("error", (error: unknown) => {
       console.warn("Log stream error", error)
-      logStreams.delete(filePath)
+      if (logStreams.get(filePath) === createdStream) {
+        logStreams.delete(filePath)
+      }
     })
   }
   return stream
@@ -252,6 +305,7 @@ export const createHandlerLogger = (name: string): ConsolaInstance => {
         message ? ` ${message}` : ""
       }`
 
+      closePreviousDateLogFiles(dateKey)
       appendLine(filePath, line)
     },
   })

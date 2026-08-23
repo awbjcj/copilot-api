@@ -8,6 +8,8 @@
     "src/locales/**/*",
     "src/types/**/*",
     "../src/lib/api-config.ts",
+    "../src/lib/atomic-file.ts",
+    "../src/lib/builtin-provider-models.ts",
     "../src/lib/compact.ts",
     "../src/lib/config-store.ts",
     "../src/lib/config.ts",
@@ -38,6 +40,7 @@
     "../src/services/copilot/get-models.ts",
     "../src/services/get-vscode-version.ts",
     "../src/services/github/**/*.ts",
+    "../src/services/responses-http.ts",
     "../src/services/responses-websocket-helpers.ts",
     "../src/services/responses-websocket.ts",
     "../src/lib/electron-fetch.ts"

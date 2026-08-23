@@ -2,6 +2,8 @@ import { useState, useEffect, type ReactNode } from 'react'
 import type {
   DesktopProxyMode,
   DesktopSettings,
+  ServerKeysConfig,
+  ServerKeysConfigUpdate,
   ThemePreference,
 } from '../types/ipc'
 import { useLanguage } from '../contexts/LanguageContext'
@@ -12,7 +14,20 @@ interface SettingsModalProps {
   onClose: () => void
 }
 
-type Section = 'general' | 'network' | 'startup'
+type Section = 'general' | 'security' | 'network' | 'startup'
+
+// Matches the normalization applied by the main process before persisting,
+// so cosmetic edits (e.g. a trailing newline) do not count as changes.
+function normalizeServerKeysText(text: string): Array<string> {
+  return [
+    ...new Set(
+      text
+        .split('\n')
+        .map((key) => key.trim())
+        .filter((key) => key.length > 0),
+    ),
+  ]
+}
 
 function requiresAppRestart(
   previous: DesktopSettings,
@@ -197,6 +212,23 @@ const IconMonitor = () => (
   </svg>
 )
 
+const IconSecurity = () => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width="14"
+    height="14"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
+    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+  </svg>
+)
+
 export default function SettingsModal({ onClose }: SettingsModalProps) {
   const { t, setLangPref } = useLanguage()
   const { setThemePref } = useTheme()
@@ -224,13 +256,22 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
   const [initialSettings, setInitialSettings] =
     useState<DesktopSettings | null>(null)
   const [saving, setSaving] = useState(false)
+  const [apiKeysText, setApiKeysText] = useState('')
+  const [adminApiKey, setAdminApiKey] = useState('')
+  const [loadedServerKeys, setLoadedServerKeys] =
+    useState<ServerKeysConfig | null>(null)
 
   useEffect(() => {
-    void window.electronAPI
-      .getSettings()
-      .then((loadedSettings) => {
+    void Promise.all([
+      window.electronAPI.getSettings(),
+      window.electronAPI.getServerKeys(),
+    ])
+      .then(([loadedSettings, serverKeys]) => {
         setSettings(loadedSettings)
         setInitialSettings(loadedSettings)
+        setApiKeysText(serverKeys.apiKeys.join('\n'))
+        setAdminApiKey(serverKeys.adminApiKey)
+        setLoadedServerKeys(serverKeys)
       })
       .catch(() => {})
   }, [])
@@ -241,6 +282,38 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
 
     setSaving(true)
     try {
+      // Only persist the fields the user actually changed. Sending the whole
+      // snapshot captured when the modal opened could clobber external updates
+      // (server startup regenerating a cleared admin key, CLI auth keys), so
+      // the main process merges only the provided fields into the latest
+      // config on disk.
+      const nextApiKeys = normalizeServerKeysText(apiKeysText)
+      const nextAdminApiKey = adminApiKey.trim()
+      const serverKeysUpdate: ServerKeysConfigUpdate = {}
+      if (
+        loadedServerKeys !== null
+        && nextApiKeys.join('\n') !== loadedServerKeys.apiKeys.join('\n')
+      ) {
+        serverKeysUpdate.apiKeys = apiKeysText.split('\n')
+      }
+      if (
+        loadedServerKeys !== null
+        && nextAdminApiKey !== loadedServerKeys.adminApiKey
+      ) {
+        serverKeysUpdate.adminApiKey = nextAdminApiKey
+      }
+
+      if (
+        loadedServerKeys !== null
+        && Object.keys(serverKeysUpdate).length > 0
+      ) {
+        const savedKeys =
+          await window.electronAPI.saveServerKeys(serverKeysUpdate)
+        setApiKeysText(savedKeys.apiKeys.join('\n'))
+        setAdminApiKey(savedKeys.adminApiKey)
+        setLoadedServerKeys(savedKeys)
+      }
+
       await window.electronAPI.saveSettings(settings)
       setLangPref(settings.language)
       setThemePref(settings.theme)
@@ -258,13 +331,19 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
 
       onClose()
     } catch (error) {
-      const savedSettings = await window.electronAPI
-        .getSettings()
-        .catch(() => initialSettings)
+      const [savedSettings, savedServerKeys] = await Promise.all([
+        window.electronAPI.getSettings().catch(() => initialSettings),
+        window.electronAPI.getServerKeys().catch(() => null),
+      ])
       if (savedSettings) {
         setSettings(savedSettings)
         setLangPref(savedSettings.language)
         setThemePref(savedSettings.theme)
+      }
+      if (savedServerKeys) {
+        setApiKeysText(savedServerKeys.apiKeys.join('\n'))
+        setAdminApiKey(savedServerKeys.adminApiKey)
+        setLoadedServerKeys(savedServerKeys)
       }
       window.alert(error instanceof Error ? error.message : String(error))
     } finally {
@@ -293,6 +372,11 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
       key: 'general',
       label: t('settings.sectionGeneral'),
       icon: <IconGeneral />,
+    },
+    {
+      key: 'security',
+      label: t('settings.sectionSecurity'),
+      icon: <IconSecurity />,
     },
     {
       key: 'network',
@@ -468,6 +552,44 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
                     }
                   />
                 </SettingRow>
+              </div>
+            )}
+
+            {section === 'security' && (
+              <div>
+                <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] leading-relaxed text-blue-800 dark:border-blue-400/15 dark:bg-blue-500/10 dark:text-blue-100/80">
+                  {t('settings.serverKeysNote')}
+                </div>
+                <div className="mb-4">
+                  <div className="text-[13px] font-medium text-ink mb-1.5">
+                    {t('settings.apiKeysLabel')}
+                  </div>
+                  <textarea
+                    rows={5}
+                    value={apiKeysText}
+                    onChange={(e) => setApiKeysText(e.target.value)}
+                    className={inputClass}
+                    placeholder="sk-…"
+                  />
+                  <p className="text-[12px] text-ink-faint mt-1.5 leading-relaxed">
+                    {t('settings.apiKeysDesc')}
+                  </p>
+                </div>
+                <div className="mb-4">
+                  <div className="text-[13px] font-medium text-ink mb-1.5">
+                    {t('settings.adminKeyLabel')}
+                  </div>
+                  <input
+                    type="text"
+                    value={adminApiKey}
+                    onChange={(e) => setAdminApiKey(e.target.value)}
+                    className={inputClass}
+                    placeholder={t('settings.adminKeyPlaceholder')}
+                  />
+                  <p className="text-[12px] text-ink-faint mt-1.5 leading-relaxed">
+                    {t('settings.adminKeyDesc')}
+                  </p>
+                </div>
               </div>
             )}
 

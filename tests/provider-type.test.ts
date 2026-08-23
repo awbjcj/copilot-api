@@ -34,6 +34,12 @@ describe("effective provider type", () => {
     ).toBe("openai-responses")
   })
 
+  test("uses OpenAI Responses for OpenCode Go Grok models", () => {
+    expect(
+      resolveEffectiveProviderType(createProviderConfig(), "grok-code-fast-1"),
+    ).toBe("openai-responses")
+  })
+
   test("keeps OpenCode Go's OpenAI-compatible default for other models", () => {
     const providerConfig = createProviderConfig()
 

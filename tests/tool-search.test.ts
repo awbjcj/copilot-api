@@ -8,7 +8,7 @@ import {
   selectDeferredToolsByNames,
   shouldEnableResponsesToolSearch,
 } from "~/lib/tool-search"
-import { runMcpServer } from "~/mcp"
+import { runMcpServer } from "~/lib/mcp-server"
 
 describe("tool search helpers", () => {
   test("detects eligible Responses tool search requests", () => {

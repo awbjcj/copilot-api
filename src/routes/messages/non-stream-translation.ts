@@ -1,6 +1,7 @@
 import type { ToolContentSupportType } from "~/lib/config"
 import type { Model } from "~/lib/types/models"
 
+import { requestContext } from "~/lib/request-context"
 import { state } from "~/lib/state"
 import {
   type ChatCompletionResponse,
@@ -16,9 +17,9 @@ import {
   type AnthropicAssistantContentBlock,
   type AnthropicAssistantMessage,
   type AnthropicDocumentBlock,
-  type AnthropicMessage,
   type AnthropicMessagesPayload,
   type AnthropicResponse,
+  type AnthropicSystemMessage,
   type AnthropicTextBlock,
   type AnthropicThinkingBlock,
   type AnthropicTool,
@@ -29,6 +30,7 @@ import {
   type AnthropicUserMessage,
 } from "~/lib/types/anthropic"
 import { mapOpenAIStopReasonToAnthropic } from "./utils"
+import { parseUserIdMetadata } from "~/lib/utils"
 
 // Compatible with opencode, it will filter out blocks where the thinking text is empty, so we need add a default thinking text
 export const THINKING_TEXT = "Thinking..."
@@ -76,6 +78,12 @@ export function translateToOpenAI(
   const model = state.models?.data.find((m) => m.id === modelId)
   const thinkingBudget = getThinkingBudget(payload, model)
   const reasoningEffort = getReasoningEffort(payload, options)
+  const { sessionId: metadataPromptCacheKey } = parseUserIdMetadata(
+    payload.metadata?.user_id,
+  )
+  const requestStore = requestContext.getStore()
+  const sessionAffinity = requestStore?.sessionAffinity?.trim() || null
+  const promptCacheKey = metadataPromptCacheKey ?? sessionAffinity
   const capabilities = {
     supportPdf: options.supportPdf ?? false,
     toolContentSupportType:
@@ -88,7 +96,7 @@ export function translateToOpenAI(
       modelId,
       capabilities,
     ),
-    max_tokens: payload.max_tokens,
+    max_completion_tokens: payload.max_tokens,
     stop: payload.stop_sequences,
     stream: payload.stream,
     temperature: payload.temperature,
@@ -98,6 +106,7 @@ export function translateToOpenAI(
     tool_choice: translateAnthropicToolChoiceToOpenAI(payload.tool_choice),
     thinking_budget: thinkingBudget,
     ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+    ...(promptCacheKey ? { prompt_cache_key: promptCacheKey } : {}),
   }
 }
 
@@ -154,12 +163,15 @@ function translateAnthropicMessagesToOpenAI(
   capabilities: TranslationCapabilities,
 ): Array<Message> {
   const systemMessages = handleSystemPrompt(payload.system)
-  const otherMessages = (payload.messages as Array<AnthropicMessage>).flatMap(
-    (message) =>
-      message.role === "user" ?
-        handleUserMessage(message, capabilities)
-      : handleAssistantMessage(message, modelId, capabilities),
-  )
+  const otherMessages = payload.messages.flatMap((message) => {
+    if (message.role === "user") {
+      return handleUserMessage(message, capabilities)
+    }
+    if (message.role === "system") {
+      return [handleInlineSystemMessage(message)]
+    }
+    return handleAssistantMessage(message, modelId, capabilities)
+  })
   return [...systemMessages, ...otherMessages]
 }
 
@@ -179,6 +191,13 @@ function handleSystemPrompt(
       })
       .join("\n\n")
     return [{ role: "system", content: systemText }]
+  }
+}
+
+function handleInlineSystemMessage(message: AnthropicSystemMessage): Message {
+  return {
+    role: "user",
+    content: mapContent(message.content),
   }
 }
 
@@ -367,10 +386,14 @@ function handleAssistantMessage(
   )
 
   if (modelId.startsWith("claude")) {
+    // Keep signature-only blocks (empty thinking text): the signature, not the
+    // summary text, carries reasoning continuity and is forwarded upstream as
+    // reasoning_opaque. Dropping empty-text blocks would silently lose those
+    // signatures. The THINKING_TEXT placeholder is still excluded: it is a
+    // synthetic value emitted by older versions, never real model output.
     thinkingBlocks = thinkingBlocks.filter(
       (b) =>
-        b.thinking
-        && b.thinking !== THINKING_TEXT
+        b.thinking !== THINKING_TEXT
         && b.signature
         // gpt signature has @ in it, so filter those out for claude models
         && !b.signature.includes("@"),
@@ -497,6 +520,7 @@ function translateAnthropicToolsToOpenAI(
       name: tool.name,
       description: tool.description,
       parameters: normalizeToolSchema(tool.input_schema),
+      ...(tool.strict === undefined ? {} : { strict: tool.strict }),
     },
   }))
 }
@@ -649,7 +673,7 @@ function getAnthropicThinkBlocks(
     return [
       {
         type: "thinking",
-        thinking: THINKING_TEXT, // Compatible with opencode, it will filter out blocks where the thinking text is empty, so we add a default thinking text here
+        thinking: "",
         signature: reasoningOpaque,
       },
     ]

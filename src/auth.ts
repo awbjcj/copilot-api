@@ -8,6 +8,7 @@ import {
   isSupportedProviderType,
   normalizeProviderBaseUrl,
   setProviderConfig,
+  setConfiguredApiKeys,
   SUPPORTED_PROVIDER_TYPES,
   type ProviderAuthType,
   type ProviderConfig,
@@ -15,6 +16,7 @@ import {
 } from "./lib/config"
 import { loginCodex } from "./lib/oauth/codex"
 import { PATHS, ensurePaths } from "./lib/paths"
+import { getConfiguredApiKeys } from "./lib/request-auth"
 import {
   QUICK_PROVIDER_CONFIGS,
   type QuickProviderName,
@@ -520,6 +522,118 @@ export async function runAuthLogin(options: RunAuthOptions): Promise<void> {
   await loginWithProvider(provider)
 }
 
+const authKeysArgs = {
+  add: {
+    alias: "a",
+    type: "string",
+    description: "Add an API key for gateway authentication",
+  },
+  remove: {
+    alias: "r",
+    type: "string",
+    description: "Remove an API key",
+  },
+  list: {
+    alias: "l",
+    type: "boolean",
+    default: false,
+    description: "List configured API keys",
+  },
+  clear: {
+    type: "boolean",
+    default: false,
+    description: "Remove all configured API keys",
+  },
+} as const
+
+interface RunAuthKeysOptions {
+  add?: string
+  remove?: string
+  list?: boolean
+  clear?: boolean
+}
+
+function normalizeAuthKeyValue(value: string): string {
+  const normalizedKey = value.trim()
+  if (!normalizedKey) {
+    throw new Error("API key must be a non-empty string")
+  }
+  return normalizedKey
+}
+
+export async function runAuthKeys(options: RunAuthKeysOptions): Promise<void> {
+  const tlsModule = await import("./lib/tls")
+  tlsModule.enableSystemCACompat()
+
+  await ensurePaths()
+
+  const operations = [
+    ...(options.add !== undefined ? ["add"] : []),
+    ...(options.remove !== undefined ? ["remove"] : []),
+    ...(options.list ? ["list"] : []),
+    ...(options.clear ? ["clear"] : []),
+  ]
+  if (operations.length > 1) {
+    throw new Error(
+      "Use only one of --add, --remove, --list, or --clear per invocation",
+    )
+  }
+
+  const operation = operations[0] ?? "list"
+
+  if (operation === "add") {
+    const apiKey = normalizeAuthKeyValue(options.add ?? "")
+    const currentKeys = getConfiguredApiKeys()
+    if (currentKeys.includes(apiKey)) {
+      consola.info(
+        `API key already configured. ${currentKeys.length} API key(s) configured.`,
+      )
+      return
+    }
+    const storedKeys = setConfiguredApiKeys([...currentKeys, apiKey])
+    consola.success(
+      `API key added to ${PATHS.CONFIG_PATH}. ${storedKeys.length} API key(s) configured.`,
+    )
+    return
+  }
+
+  if (operation === "remove") {
+    const apiKey = normalizeAuthKeyValue(options.remove ?? "")
+    const currentKeys = getConfiguredApiKeys()
+    if (!currentKeys.includes(apiKey)) {
+      consola.info(
+        `API key not found. ${currentKeys.length} API key(s) configured.`,
+      )
+      return
+    }
+    const storedKeys = setConfiguredApiKeys(
+      currentKeys.filter((key) => key !== apiKey),
+    )
+    consola.success(
+      `API key removed from ${PATHS.CONFIG_PATH}. ${storedKeys.length} API key(s) configured.`,
+    )
+    return
+  }
+
+  if (operation === "clear") {
+    setConfiguredApiKeys([])
+    consola.success(`Removed all API keys from ${PATHS.CONFIG_PATH}.`)
+    return
+  }
+
+  const currentKeys = getConfiguredApiKeys()
+  if (currentKeys.length === 0) {
+    consola.info(
+      "No API keys configured. Run `npx copilot-api auth keys --add <key>` to add one.",
+    )
+    return
+  }
+  consola.info("Configured API keys:")
+  for (const key of currentKeys) {
+    consola.info(`- ${key}`)
+  }
+}
+
 const authLogin = defineCommand({
   meta: {
     name: "login",
@@ -536,6 +650,22 @@ const authLogin = defineCommand({
   },
 })
 
+const authKeys = defineCommand({
+  meta: {
+    name: "keys",
+    description: "Manage gateway API keys (auth.apiKeys) in the config",
+  },
+  args: authKeysArgs,
+  run({ args }) {
+    return runAuthKeys({
+      add: args.add,
+      remove: args.remove,
+      list: args.list,
+      clear: args.clear,
+    })
+  },
+})
+
 export const auth = defineCommand({
   meta: {
     name: "auth",
@@ -544,6 +674,7 @@ export const auth = defineCommand({
   args: authArgs,
   subCommands: {
     login: authLogin,
+    keys: authKeys,
   },
   run({ args }) {
     if ((args._[0] ?? "").trim()) {

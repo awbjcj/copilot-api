@@ -8,8 +8,12 @@ import {
 } from "~/lib/config"
 import { createHandlerLogger, debugJson, debugJsonTail } from "~/lib/logger"
 import { findEndpointModel } from "~/lib/models"
-import { parseProviderModelAlias } from "~/lib/provider-model"
-import { handleProviderResponsesForProvider } from "~/routes/provider/responses/handler"
+import { resolveConfiguredProviderModelAlias } from "~/lib/provider-resolver"
+import { isCodexUserAgent } from "~/routes/models/codex-models"
+import {
+  handleProviderResponsesForProvider,
+  providerResponsesHandlerDependencies,
+} from "~/routes/provider/responses/handler"
 import {
   createCopilotTokenUsageRecorder,
   normalizeOptionalToken,
@@ -25,6 +29,7 @@ import type { SubagentMarker } from "~/lib/subagent"
 import type {
   ResponsesPayload,
   ResponsesResult,
+  ResponsesTransport,
   ResponseStreamEvent,
 } from "~/lib/types/responses"
 import { createResponses as createCopilotResponses } from "~/services/copilot/create-responses"
@@ -36,7 +41,10 @@ import {
   compactInputByLatestCompaction,
   getResponsesTransportForModel,
   getResponsesRequestOptions,
+  normalizeInputImageDetails,
+  normalizeResponsesReasoningEffort,
   sanitizeOversizedInputImages,
+  sanitizeUnsupportedInputFields,
 } from "./utils"
 import consola from "consola"
 
@@ -59,7 +67,10 @@ export const handleResponses = async (c: Context) => {
     )
   }
 
-  const providerModelAlias = parseProviderModelAlias(payload.model)
+  const providerModelAlias = await resolveConfiguredProviderModelAlias(
+    payload.model,
+    providerResponsesHandlerDependencies.resolveProviderConfig,
+  )
   if (providerModelAlias) {
     payload.model = providerModelAlias.model
     return await handleProviderResponsesForProvider(c, {
@@ -90,21 +101,35 @@ export const handleResponses = async (c: Context) => {
     payload.model,
   )
   payload.model = selectedModel?.id ?? payload.model
+  const normalizedReasoningEffort = normalizeResponsesReasoningEffort(
+    payload,
+    selectedModel?.capabilities?.supports?.reasoning_effort,
+  )
+  if (normalizedReasoningEffort) {
+    logger.debug(
+      `Normalized reasoning effort from ${normalizedReasoningEffort.from} to ${normalizedReasoningEffort.to} based on the selected model capabilities`,
+    )
+  }
   const responsesTransport = getResponsesTransportForModel(selectedModel)
 
-  if (!responsesTransport) {
-    const supportedEndpoints = selectedModel?.supported_endpoints ?? []
-    if (
-      supportedEndpoints.includes("/v1/messages")
-      || supportedEndpoints.includes("/chat/completions")
-    ) {
-      return await handleResponsesViaMessages(c, {
-        payload,
-        publicModel: requestedModel,
-        targetModel: payload.model,
-      })
-    }
+  const useMessagesFallback = shouldFallbackToMessages(
+    c,
+    payload.model,
+    selectedModel,
+    responsesTransport,
+  )
+  if (useMessagesFallback) {
+    return await handleResponsesViaMessages(c, {
+      payload,
+      publicModel: requestedModel,
+      targetModel: payload.model,
+      subagentMarker,
+      requestId,
+      sessionId: fallbackSessionId,
+    })
+  }
 
+  if (!responsesTransport) {
     return c.json(
       {
         error: {
@@ -123,7 +148,22 @@ export const handleResponses = async (c: Context) => {
     model: payload.model,
   })
 
+  const sanitizedUnsupportedFieldCount = sanitizeUnsupportedInputFields(payload)
+  if (sanitizedUnsupportedFieldCount > 0) {
+    logger.debug(
+      `Removed ${sanitizedUnsupportedFieldCount} unsupported input field(s) before forwarding to Copilot Responses`,
+    )
+  }
+
+  const normalizedImageDetailCount = normalizeInputImageDetails(payload)
+  if (normalizedImageDetailCount > 0) {
+    logger.debug(
+      `Normalized ${normalizedImageDetailCount} unsupported input image detail value(s) before forwarding to Copilot Responses`,
+    )
+  }
+
   removeUnsupportedTools(payload)
+  fillEmptyNamespaceToolDescriptions(payload)
 
   if (!responsesHandlerDependencies.isResponsesApiWebSearchEnabled()) {
     removeWebSearchTool(payload)
@@ -165,6 +205,7 @@ export const handleResponses = async (c: Context) => {
     subagentMarker,
     requestId,
     sessionId: fallbackSessionId,
+    signal: c.req.raw.signal,
     transport: responsesTransport,
   })
 
@@ -173,37 +214,43 @@ export const handleResponses = async (c: Context) => {
     return streamSSE(c, async (stream) => {
       const idTracker = createStreamIdTracker()
       let usage: UsageTokens = {}
+      const iterator = response[Symbol.asyncIterator]()
 
-      for await (const chunk of response) {
-        debugJson(logger, "Responses stream chunk:", chunk)
-        const parsedEvent = parseResponsesStreamEvent(chunk)
-        if (
-          parsedEvent?.type === "response.completed"
-          || parsedEvent?.type === "response.failed"
-          || parsedEvent?.type === "response.incomplete"
-        ) {
-          usage = {
-            ...normalizeResponsesUsage(parsedEvent.response.usage),
-            total_nano_aiu: normalizeOptionalToken(
-              parsedEvent.copilot_usage?.total_nano_aiu,
-            ),
+      try {
+        for await (const chunk of {
+          [Symbol.asyncIterator]: () => iterator,
+        }) {
+          debugJson(logger, "Responses stream chunk:", chunk)
+          const parsedEvent = parseResponsesStreamEvent(chunk)
+          if (
+            parsedEvent?.type === "response.completed"
+            || parsedEvent?.type === "response.failed"
+            || parsedEvent?.type === "response.incomplete"
+          ) {
+            usage = {
+              ...normalizeResponsesUsage(parsedEvent.response.usage),
+              total_nano_aiu: normalizeOptionalToken(
+                parsedEvent.copilot_usage?.total_nano_aiu,
+              ),
+            }
           }
+
+          const processedData = fixStreamIds(
+            (chunk as { data?: string }).data ?? "",
+            (chunk as { event?: string }).event,
+            idTracker,
+          )
+
+          await stream.writeSSE({
+            id: (chunk as { id?: string }).id,
+            event: (chunk as { event?: string }).event,
+            data: processedData,
+          })
         }
-
-        const processedData = fixStreamIds(
-          (chunk as { data?: string }).data ?? "",
-          (chunk as { event?: string }).event,
-          idTracker,
-        )
-
-        await stream.writeSSE({
-          id: (chunk as { id?: string }).id,
-          event: (chunk as { event?: string }).event,
-          data: processedData,
-        })
+      } finally {
+        await iterator.return?.()
+        recordUsage(usage)
       }
-
-      recordUsage(usage)
     })
   }
 
@@ -223,6 +270,27 @@ export const handleResponses = async (c: Context) => {
 
 const isStreamingRequested = (payload: ResponsesPayload): boolean =>
   Boolean(payload.stream)
+
+const shouldFallbackToMessages = (
+  c: Context,
+  modelId: string,
+  selectedModel: { supported_endpoints?: Array<string> } | undefined,
+  responsesTransport: ResponsesTransport | null,
+): boolean => {
+  if (isCodexUserAgent(c.req.header("user-agent"))) {
+    return !(modelId.startsWith("gpt") || modelId.startsWith("codex"))
+  }
+
+  if (responsesTransport) {
+    return false
+  }
+
+  const supportedEndpoints = selectedModel?.supported_endpoints ?? []
+  return (
+    supportedEndpoints.includes("/v1/messages")
+    || supportedEndpoints.includes("/chat/completions")
+  )
+}
 
 const parseResponsesStreamEvent = (
   chunk: unknown,
@@ -269,6 +337,36 @@ export const removeUnsupportedTools = (payload: ResponsesPayload): void => {
   })
   if (dropped.length > 0) {
     logger.debug("Removed unsupported tools:", dropped)
+  }
+}
+
+export const fillEmptyNamespaceToolDescriptions = (
+  payload: ResponsesPayload,
+): void => {
+  fillEmptyNamespaceDescriptions(payload.tools)
+
+  if (!Array.isArray(payload.input)) return
+
+  for (const item of payload.input) {
+    if (!item || typeof item !== "object") continue
+    fillEmptyNamespaceDescriptions((item as Record<string, unknown>).tools)
+  }
+}
+
+const fillEmptyNamespaceDescriptions = (tools: unknown): void => {
+  if (!Array.isArray(tools)) return
+
+  for (const tool of tools) {
+    if (!tool || typeof tool !== "object") continue
+
+    const namespaceTool = tool as Record<string, unknown>
+    if (
+      namespaceTool.type === "namespace"
+      && namespaceTool.description === ""
+      && typeof namespaceTool.name === "string"
+    ) {
+      namespaceTool.description = namespaceTool.name
+    }
   }
 }
 

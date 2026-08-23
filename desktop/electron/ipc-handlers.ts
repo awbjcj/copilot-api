@@ -30,6 +30,10 @@ import {
 } from './server-manager'
 import { readSettings, writeSettings } from './settings-store'
 import { runSettingsTransaction } from './settings-transaction'
+import {
+  readServerKeysConfig,
+  writeServerKeysConfig,
+} from './server-auth-config'
 import type {
   DesktopAuthMode,
   DesktopProxySettings,
@@ -37,6 +41,7 @@ import type {
   ModelMappingsConfig,
   ProviderAuthInput,
   ServerAuthInfo,
+  ServerKeysConfigUpdate,
 } from '../src/types/ipc'
 
 interface ConfigApiErrorResponse {
@@ -313,6 +318,12 @@ export function registerIpcHandlers(
     async (_event, modelMappings: Record<string, string>) => {
       await saveModelMappingsViaApi(modelMappings)
     },
+  )
+
+  ipcMain.handle('auth:get-server-keys', () => readServerKeysConfig())
+  ipcMain.handle(
+    'auth:save-server-keys',
+    (_event, keys: ServerKeysConfigUpdate) => writeServerKeysConfig(keys),
   )
 
   // Shell: Open the system browser

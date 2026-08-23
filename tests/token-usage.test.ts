@@ -435,6 +435,54 @@ describe("token usage storage", () => {
     })
   })
 
+  test("prices DeepSeek models with peak-tier prices in CNY", () => {
+    const expectedCosts = [
+      { model: "deepseek-v4-flash", totalCostNanos: 30_200_000 },
+      { model: "deepseek-v4-pro", totalCostNanos: 90_600_000 },
+    ]
+
+    for (const { model, totalCostNanos } of expectedCosts) {
+      expect(
+        resolveTokenUsageCost({
+          cache_read_input_tokens: 2_000,
+          input_tokens: 1_000,
+          model,
+          output_tokens: 3_000,
+          providerName: "deepseek",
+          source: "provider",
+        }),
+      ).toEqual({
+        currency: "CNY",
+        source: "builtin",
+        total_cost_nanos: totalCostNanos,
+      })
+    }
+  })
+
+  test("prices OpenCode Go DeepSeek models with catalog prices in USD", () => {
+    const expectedCosts = [
+      { model: "deepseek-v4-flash", totalCostNanos: 2_214_000 },
+      { model: "deepseek-v4-pro", totalCostNanos: 6_644_000 },
+    ]
+
+    for (const { model, totalCostNanos } of expectedCosts) {
+      expect(
+        resolveTokenUsageCost({
+          cache_read_input_tokens: 2_000,
+          input_tokens: 1_000,
+          model,
+          output_tokens: 3_000,
+          providerName: "opencode-go",
+          source: "provider",
+        }),
+      ).toEqual({
+        currency: "USD",
+        source: "builtin",
+        total_cost_nanos: totalCostNanos,
+      })
+    }
+  })
+
   test("prices Kimi models in USD and DashScope Kimi in CNY", () => {
     const expectedCosts = [
       {

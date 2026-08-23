@@ -11,15 +11,19 @@ import {
 } from "~/lib/config"
 import { createHandlerLogger, debugJson } from "~/lib/logger"
 import { findEndpointModel } from "~/lib/models"
-import { parseProviderModelAlias } from "~/lib/provider-model"
+import { resolveConfiguredProviderModelAlias } from "~/lib/provider-resolver"
 import { state } from "~/lib/state"
+import type { SubagentMarker } from "~/lib/subagent"
 import type { TokenUsageEndpoint } from "~/lib/token-usage"
 import {
   generateRequestIdFromPayload,
   getRootSessionId,
   getUUID,
 } from "~/lib/utils"
-import { handleProviderMessagesForProvider } from "~/routes/provider/messages/handler"
+import {
+  handleProviderMessagesForProvider,
+  providerMessagesHandlerDependencies,
+} from "~/routes/provider/messages/handler"
 import { getResponsesTransportForModel } from "~/routes/responses/utils"
 
 import type { AnthropicMessagesPayload } from "~/lib/types/anthropic"
@@ -62,6 +66,9 @@ export interface CompletionPayloadOptions {
   skipModelMapping?: boolean
   skipWebSearch?: boolean
   usageEndpoint?: TokenUsageEndpoint
+  subagentMarker?: SubagentMarker | null
+  sessionId?: string
+  requestId?: string
 }
 
 export async function handleCompletionPayload(
@@ -101,7 +108,10 @@ export async function handleCompletionPayload(
     anthropicPayload.model = claudeAutoModel
   }
 
-  const providerModelAlias = parseProviderModelAlias(anthropicPayload.model)
+  const providerModelAlias = await resolveConfiguredProviderModelAlias(
+    anthropicPayload.model,
+    providerMessagesHandlerDependencies.resolveProviderConfig,
+  )
   if (providerModelAlias) {
     anthropicPayload.model = providerModelAlias.model
     return await handleProviderMessagesForProvider(c, {
@@ -117,12 +127,15 @@ export async function handleCompletionPayload(
 
   sanitizeIdeTools(anthropicPayload)
 
-  const subagentMarker = parseSubagentMarkerFromFirstUser(anthropicPayload)
+  const subagentMarker =
+    dispatchOptions.subagentMarker
+    ?? parseSubagentMarkerFromFirstUser(anthropicPayload)
   if (subagentMarker) {
     debugJson(logger, "Detected Subagent marker:", subagentMarker)
   }
 
-  let sessionId = getRootSessionId(anthropicPayload, c)
+  let sessionId =
+    dispatchOptions.sessionId ?? getRootSessionId(anthropicPayload, c)
 
   // claude code and opencode compact / auto-continue detection
   const compactType =
@@ -163,7 +176,9 @@ export async function handleCompletionPayload(
     applyLastMessageCacheControl(anthropicPayload, lastMessageCacheControl)
   }
 
-  const requestId = generateRequestIdFromPayload(anthropicPayload, sessionId)
+  const requestId =
+    dispatchOptions.requestId
+    ?? generateRequestIdFromPayload(anthropicPayload, sessionId)
   logger.debug("Generated request ID:", requestId)
 
   if (!sessionId) {
