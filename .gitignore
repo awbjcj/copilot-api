@@ -21,3 +21,8 @@ dist/
 .claude
 
 copilot-data/
+
+.omc/
+.remember/
+.claude-plugin/
+.vscode/
