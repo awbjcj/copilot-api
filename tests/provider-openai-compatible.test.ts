@@ -340,7 +340,8 @@ describe("openai-compatible provider messages", () => {
     expect(events.at(-1)).toEqual({
       type: "error",
       error: {
-        message: "An unexpected error occurred during streaming.",
+        message:
+          "An unexpected error occurred during streaming, retry your request.",
         type: "api_error",
       },
     })
@@ -383,7 +384,8 @@ describe("openai-compatible provider messages", () => {
       {
         type: "error",
         error: {
-          message: "An unexpected error occurred during streaming.",
+          message:
+            "An unexpected error occurred during streaming, retry your request.",
           type: "api_error",
         },
       },

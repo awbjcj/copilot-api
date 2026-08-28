@@ -243,7 +243,7 @@ describe("token usage storage", () => {
 
   test("calculates built-in Codex GPT-5.6 prices with cached input discount", async () => {
     const expectedCosts = [
-      { model: "gpt-5.6-sol", totalCostNanos: 96_000_000 },
+      { model: "gpt-5.6-sol", totalCostNanos: 64_800_000 },
       { model: "gpt-5.6-terra", totalCostNanos: 38_400_000 },
       { model: "gpt-5.6-luna", totalCostNanos: 3_840_000 },
     ]
@@ -279,9 +279,9 @@ describe("token usage storage", () => {
     const summary = (await response.json()) as TokenUsageSummary
     expect(summary.totals.costs).toEqual([
       {
-        amount: 0.13824,
+        amount: 0.10704,
         currency: "USD",
-        total_cost_nanos: 138_240_000,
+        total_cost_nanos: 107_040_000,
       },
     ])
   })

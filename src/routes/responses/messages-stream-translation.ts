@@ -130,7 +130,13 @@ export async function* translateMessagesStream(
       )
     }
   } catch (error) {
-    if (!state.initialized) throw error
+    if (!state.initialized) {
+      // No lifecycle events reached the client yet. Emit response.created and
+      // response.in_progress before the failure so clients tracking the
+      // lifecycle receive a protocol-valid stream instead of a silent close.
+      yield createLifecycleEvent(state, "response.created")
+      yield createLifecycleEvent(state, "response.in_progress")
+    }
     yield createErrorEvent(state, error)
     yield createFailedEvent(state, error)
   }

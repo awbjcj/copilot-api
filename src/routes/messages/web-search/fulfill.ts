@@ -245,10 +245,12 @@ export const prepareWebSearchResponsesPayload = (
     switchedPayload,
     options.subagentAgentId,
   )
-  responsesPayload.tools = [buildResponsesWebSearchTool(config)]
+  responsesPayload.tools = [
+    buildResponsesWebSearchTool({ ...config, searchContextSize: "low" }),
+  ]
   responsesPayload.tool_choice = undefined
   responsesPayload.reasoning = {
-    effort: "medium",
+    effort: "low",
     summary: "auto",
   }
   return responsesPayload

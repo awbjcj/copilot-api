@@ -1402,28 +1402,65 @@ describe("Responses Lite to Messages translation", () => {
     }
   })
 
-  test("throws on an empty stream before initialization", async () => {
+  test("emits failure events when the stream ends before initialization", async () => {
     const translation = translate({ input: "hello", stream: true })
     async function* chunks() {
       await Promise.resolve()
       yield { data: "[DONE]" }
     }
 
-    let thrown: unknown
-    try {
-      for await (const event of translateMessagesStream(
-        chunks(),
-        translation,
-      )) {
-        void event
-      }
-    } catch (error) {
-      thrown = error
+    const events: Array<ResponseStreamEvent> = []
+    for await (const event of translateMessagesStream(chunks(), translation)) {
+      events.push(event)
     }
 
-    expect(thrown).toBeInstanceOf(ResponsesMessagesTranslationError)
-    expect((thrown as Error).message).toBe(
-      "Messages API returned an empty stream",
-    )
+    expect(events.map((event) => event.type)).toEqual([
+      "response.created",
+      "response.in_progress",
+      "error",
+      "response.failed",
+    ])
+    expect(events.map((event) => event.sequence_number)).toEqual([0, 1, 2, 3])
+    const error = events[2]
+    if (error?.type === "error") {
+      expect(error.message).toBe("Messages API returned an empty stream")
+    }
+    const failed = events[3]
+    if (failed?.type === "response.failed") {
+      expect(failed.response.status).toBe("failed")
+    }
+  })
+
+  test("emits failure events when upstream errors before initialization", async () => {
+    const translation = translate({ input: "hello", stream: true })
+    async function* chunks() {
+      await Promise.resolve()
+      yield {
+        data: JSON.stringify({
+          type: "error",
+          error: { type: "overloaded_error", message: "Overloaded" },
+        }),
+      }
+    }
+
+    const events: Array<ResponseStreamEvent> = []
+    for await (const event of translateMessagesStream(chunks(), translation)) {
+      events.push(event)
+    }
+
+    expect(events.map((event) => event.type)).toEqual([
+      "response.created",
+      "response.in_progress",
+      "error",
+      "response.failed",
+    ])
+    const error = events[2]
+    if (error?.type === "error") {
+      expect(error.message).toBe("Overloaded")
+    }
+    const failed = events[3]
+    if (failed?.type === "response.failed") {
+      expect(failed.response.status).toBe("failed")
+    }
   })
 })

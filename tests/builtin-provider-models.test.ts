@@ -34,25 +34,55 @@ describe("builtin provider model registry", () => {
       "gpt-5.6-luna",
       "qwen3.8-max",
       "minimax-m3",
-      "ox-alpha-free",
+      "glm-5.3-flash",
+      "muse-spark-1.2-contributor",
     ]) {
       expect(modelIds).toContain(modelId)
     }
   })
 
-  test("defines the free Ox Alpha model with free pricing", () => {
-    const config = builtinProviderModelRegistry.getModelConfig(
-      "opencode-go",
-      "ox-alpha-free",
-    )
-    expect(config).toMatchObject({
+  test("does not keep Ox Alpha models in the catalog", () => {
+    expect(
+      builtinProviderModelRegistry.getModelConfig(
+        "opencode-go",
+        "ox-alpha-free",
+      ),
+    ).toBeUndefined()
+  })
+
+  test("defines the Muse Spark 1.2 Contributor model pricing", () => {
+    expect(
+      builtinProviderModelRegistry.getModelConfig(
+        "opencode-go",
+        "muse-spark-1.2-contributor",
+      ),
+    ).toEqual({
+      contextWindow: 1_048_576,
+      inputModalities: ["text", "image"],
+      maxOutputTokens: 131_072,
+      pricing: {
+        cachedInput: 0.002,
+        input: 0.1,
+        output: 0.2,
+      },
+      reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"],
+    })
+  })
+
+  test("defines the GLM-5.3 Flash model pricing", () => {
+    expect(
+      builtinProviderModelRegistry.getModelConfig(
+        "opencode-go",
+        "glm-5.3-flash",
+      ),
+    ).toEqual({
       contextWindow: 1_000_000,
       inputModalities: ["text", "image"],
       maxOutputTokens: 131_072,
       pricing: {
-        cachedInput: 0,
-        input: 0,
-        output: 0,
+        cachedInput: 0.015,
+        input: 0.075,
+        output: 0.25,
       },
       reasoningEfforts: ["low", "high", "max"],
     })
@@ -92,17 +122,17 @@ describe("builtin provider model registry", () => {
       pricing: {
         tiers: [
           {
-            cacheCreationInput: 6.25,
-            cachedInput: 0.5,
-            input: 5,
+            cacheCreationInput: 5,
+            cachedInput: 0.4,
+            input: 4,
             maxInputTokens: 272_000,
-            output: 30,
+            output: 20,
           },
           {
-            cacheCreationInput: 12.5,
-            cachedInput: 1,
-            input: 10,
-            output: 45,
+            cacheCreationInput: 10,
+            cachedInput: 0.8,
+            input: 8,
+            output: 30,
           },
         ],
       },

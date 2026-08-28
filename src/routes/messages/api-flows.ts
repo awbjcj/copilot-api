@@ -326,7 +326,7 @@ export const handleWithResponsesApi = async (
           "Responses stream ended without completion; sending error event",
         )
         const errorEvent = buildErrorEvent(
-          "Responses stream ended without completion",
+          "Responses stream ended without completion, retry your request.",
         )
         await stream.writeSSE({
           event: errorEvent.type,

@@ -24,7 +24,6 @@ import { providerModelRoutes } from "./routes/provider/models/route"
 import { providerResponsesRoutes } from "./routes/provider/responses/route"
 import { responsesRoutes } from "./routes/responses/route"
 import { tokenUsageRoute } from "./routes/token-usage/route"
-import { tokenRoute } from "./routes/token/route"
 import { usageRoute } from "./routes/usage/route"
 
 export const server = new Hono()
@@ -62,7 +61,6 @@ server.route("/models", modelRoutes)
 server.route("/embeddings", embeddingRoutes)
 server.route("/usage", usageRoute)
 server.route("/token-usage", tokenUsageRoute)
-server.route("/token", tokenRoute)
 server.route("/responses", responsesRoutes)
 server.route("/alpha/search", alphaSearchRoutes)
 server.route("/images", imageRoutes)

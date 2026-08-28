@@ -997,7 +997,7 @@ const streamResponsesProviderMessages = ({
 
     if (!streamState.messageCompleted) {
       const errorEvent = buildErrorEvent(
-        `${provider} stream ended without a completion event`,
+        `${provider} stream ended without a completion event, retry your request.`,
       )
       await stream.writeSSE({
         event: errorEvent.type,
