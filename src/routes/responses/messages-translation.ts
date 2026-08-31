@@ -1078,7 +1078,7 @@ function resolveMetadataUserId(payload: ResponsesPayload): string | undefined {
 const EPHEMERAL_CACHE_CONTROL: AnthropicCacheControl = { type: "ephemeral" }
 
 // Mark the stable prompt prefix for Anthropic prompt caching: the last system
-// block plus the tail block of the final message.
+// block plus the tail block of the final user message.
 function applyEphemeralCacheControl(
   messages: Array<AnthropicInputMessage>,
   system: Array<AnthropicTextBlock>,
@@ -1088,21 +1088,23 @@ function applyEphemeralCacheControl(
     lastSystemBlock.cache_control = { ...EPHEMERAL_CACHE_CONTROL }
   }
 
-  const lastMessage = messages.at(-1)
-  if (!lastMessage) return
+  const lastUserMessage = messages.findLast(
+    (message): message is AnthropicUserMessage => message.role === "user",
+  )
+  if (!lastUserMessage) return
 
-  if (typeof lastMessage.content === "string") {
+  if (typeof lastUserMessage.content === "string") {
     const textBlock: AnthropicTextBlock = {
       type: "text",
-      text: lastMessage.content,
+      text: lastUserMessage.content,
       cache_control: { ...EPHEMERAL_CACHE_CONTROL },
     }
-    lastMessage.content = [textBlock]
+    lastUserMessage.content = [textBlock]
     return
   }
 
-  const lastBlock = lastMessage.content.at(-1)
-  if (!lastBlock || lastBlock.type === "thinking") return
+  const lastBlock = lastUserMessage.content.at(-1)
+  if (!lastBlock) return
   lastBlock.cache_control = { ...EPHEMERAL_CACHE_CONTROL }
 }
 

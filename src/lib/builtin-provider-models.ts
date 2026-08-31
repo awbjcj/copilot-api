@@ -287,6 +287,17 @@ export class BuiltinProviderModelRegistry {
           output: 0.58,
         },
       },
+      "hy4-preview": {
+        contextWindow: 1_024_000,
+        inputModalities: ["text"],
+        maxOutputTokens: 64_000,
+        pricing: {
+          cachedInput: 0.042,
+          input: 0.834,
+          output: 2.501,
+        },
+        reasoningEfforts: ["high"],
+      },
       "gpt-5.6-luna": {
         pricing: {
           tiers: [
@@ -369,6 +380,28 @@ export class BuiltinProviderModelRegistry {
           ],
         },
         reasoningEfforts: ["low", "medium", "high"],
+      },
+      "grok-4.6": {
+        contextWindow: 500_000,
+        defaultReasoningEffort: "high",
+        inputModalities: ["text", "image"],
+        maxOutputTokens: 64_000,
+        pricing: {
+          tiers: [
+            {
+              cachedInput: 0.5,
+              input: 2,
+              maxInputTokens: 200_000,
+              output: 6,
+            },
+            {
+              cachedInput: 1,
+              input: 4,
+              output: 12,
+            },
+          ],
+        },
+        reasoningEfforts: ["low", "medium", "high", "xhigh"],
       },
       "deepseek-v4-flash": {
         contextWindow: 1_000_000,
@@ -485,6 +518,18 @@ export class BuiltinProviderModelRegistry {
           input: 2,
           output: 6,
         },
+      },
+      "qwen3.8-flash": {
+        contextWindow: 1_000_000,
+        inputModalities: ["text", "image"],
+        maxOutputTokens: 131_072,
+        pricing: {
+          cacheCreationInput: 0.2,
+          cachedInput: 0.016,
+          input: 0.15,
+          output: 0.47,
+        },
+        reasoningEfforts: ["low", "medium", "xhigh"],
       },
       "minimax-m2.7": {
         contextWindow: 204_800,

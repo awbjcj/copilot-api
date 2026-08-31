@@ -36,6 +36,9 @@ describe("builtin provider model registry", () => {
       "minimax-m3",
       "glm-5.3-flash",
       "muse-spark-1.2-contributor",
+      "hy4-preview",
+      "qwen3.8-flash",
+      "grok-4.6",
     ]) {
       expect(modelIds).toContain(modelId)
     }

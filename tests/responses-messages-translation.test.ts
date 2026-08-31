@@ -156,7 +156,7 @@ describe("Responses Lite to Messages translation", () => {
     ])
   })
 
-  test("adds ephemeral cache_control to the last system block and the last message tail", () => {
+  test("adds ephemeral cache_control to the last system block and the tail block of the last user message", () => {
     const result = translateWithTips({
       instructions: "Base instructions",
       input: [
@@ -250,7 +250,7 @@ describe("Responses Lite to Messages translation", () => {
     ])
   })
 
-  test("does not mark a trailing thinking block with cache_control", () => {
+  test("marks the final user message even when a thinking block trails", () => {
     const result = translate({
       input: [
         { role: "user", content: "What is 2 + 2?", type: "message" },
@@ -264,7 +264,16 @@ describe("Responses Lite to Messages translation", () => {
     })
 
     expect(result.messagesPayload.messages).toEqual([
-      { role: "user", content: "What is 2 + 2?" },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "What is 2 + 2?",
+            cache_control: { type: "ephemeral" },
+          },
+        ],
+      },
       {
         role: "assistant",
         content: [
@@ -525,7 +534,45 @@ describe("Responses Lite to Messages translation", () => {
             input: {
               path: "D:\\bud\\copilot-api\\docs\\screenshots\\desktop-dashboard.png",
             },
+          },
+        ],
+      },
+    ])
+  })
+
+  test("marks the last user message when the conversation ends with an assistant tool call", () => {
+    const result = translate({
+      input: [
+        { role: "user", content: "Show the dashboard", type: "message" },
+        {
+          type: "function_call",
+          call_id: "call_00_ET_DM1gjjhO7owedlK9BQF94440",
+          name: "functions__view_image",
+          arguments: JSON.stringify({ path: "dashboard.png" }),
+          status: "completed",
+        },
+      ],
+    })
+
+    expect(result.messagesPayload.messages).toEqual([
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "Show the dashboard",
             cache_control: { type: "ephemeral" },
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "call_00_ET_DM1gjjhO7owedlK9BQF94440",
+            name: "functions__view_image",
+            input: { path: "dashboard.png" },
           },
         ],
       },
