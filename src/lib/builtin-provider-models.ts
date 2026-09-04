@@ -1,5 +1,5 @@
 import type { TokenUsagePricingConfig } from "./token-usage/pricing"
-import type { CodexReasoningEffort } from "./config-store"
+import type { CodexReasoningEffort, ModelReasoningField } from "./config-store"
 
 export type BuiltinProviderInputModality = "text" | "image"
 
@@ -10,6 +10,11 @@ export interface BuiltinProviderModelConfig {
   maxOutputTokens?: number
   pricing: TokenUsagePricingConfig
   reasoningEfforts?: Array<CodexReasoningEffort>
+  // Message field carrying assistant thinking text in upstream requests,
+  // for models that do not follow the default "reasoning_content"
+  // convention (e.g. opencode-go hy3/hy4 use the OpenRouter-style
+  // "reasoning" field)
+  reasoningField?: ModelReasoningField
 }
 
 type BuiltinProviderModelCatalog = Record<
@@ -286,6 +291,7 @@ export class BuiltinProviderModelRegistry {
           input: 0.14,
           output: 0.58,
         },
+        reasoningField: "reasoning",
       },
       "hy4-preview": {
         contextWindow: 1_024_000,
@@ -297,6 +303,7 @@ export class BuiltinProviderModelRegistry {
           output: 2.501,
         },
         reasoningEfforts: ["high"],
+        reasoningField: "reasoning",
       },
       "gpt-5.6-luna": {
         pricing: {
@@ -349,6 +356,17 @@ export class BuiltinProviderModelRegistry {
         reasoningEfforts: ["low", "high", "max"],
       },
       "muse-spark-1.2-contributor": {
+        contextWindow: 1_048_576,
+        inputModalities: ["text", "image"],
+        maxOutputTokens: 131_072,
+        pricing: {
+          cachedInput: 0.002,
+          input: 0.1,
+          output: 0.2,
+        },
+        reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"],
+      },
+      "muse-spark-1.3-contributor": {
         contextWindow: 1_048_576,
         inputModalities: ["text", "image"],
         maxOutputTokens: 131_072,

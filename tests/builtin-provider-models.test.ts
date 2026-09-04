@@ -118,6 +118,19 @@ describe("builtin provider model registry", () => {
     })
   })
 
+  test("flags models that expect the OpenRouter-style reasoning field", () => {
+    expect(
+      builtinProviderModelRegistry.getModelConfig("opencode-go", "hy3"),
+    ).toMatchObject({
+      reasoningField: "reasoning",
+    })
+    expect(
+      builtinProviderModelRegistry.getModelConfig("opencode-go", "hy4-preview"),
+    ).toMatchObject({
+      reasoningField: "reasoning",
+    })
+  })
+
   test("keeps GPT entries pricing-only", () => {
     expect(
       builtinProviderModelRegistry.getModelConfig("codex", "gpt-5.6-sol"),

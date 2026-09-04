@@ -22,6 +22,7 @@ import { isCodexUserAgent } from "~/routes/models/codex-models"
 import {
   applyResponsesApiContextManagement,
   compactInputByLatestCompaction,
+  filterReasoningForTransport,
 } from "~/routes/responses/utils"
 import { handleResponsesViaMessages } from "~/routes/responses/messages-handler"
 import { normalizeProviderResponsesReasoningEffort } from "~/routes/provider/utils"
@@ -92,6 +93,7 @@ export async function handleProviderResponsesForProvider(
   }
 
   if (shouldFallbackToMessages(c, payload.model, effectiveType)) {
+    filterReasoningForTransport(payload, true)
     return await handleResponsesViaMessages(c, {
       payload,
       publicModel: options.publicModel ?? payload.model,
@@ -110,6 +112,8 @@ export async function handleProviderResponsesForProvider(
       400,
     )
   }
+
+  filterReasoningForTransport(payload, false)
 
   const model =
     providerConfig.name === "codex" ?

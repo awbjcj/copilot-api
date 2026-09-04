@@ -85,7 +85,12 @@ export interface ModelConfig {
   supportPdf?: boolean
   toolContentSupportType?: Array<ToolContentSupportType>
   type?: ProviderType
+  // Message field used to carry assistant thinking text when forwarding
+  // requests upstream; defaults to "reasoning_content"
+  reasoningField?: ModelReasoningField
 }
+
+export type ModelReasoningField = "reasoning" | "reasoning_content"
 
 export type CodexReasoningEffort =
   | "none"

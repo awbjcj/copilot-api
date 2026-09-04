@@ -39,6 +39,7 @@ import { createStreamIdTracker, fixStreamIds } from "./stream-id-sync"
 import {
   applyResponsesApiContextManagement,
   compactInputByLatestCompaction,
+  filterReasoningForTransport,
   getResponsesTransportForModel,
   getResponsesRequestOptions,
   normalizeInputImageDetails,
@@ -119,6 +120,7 @@ export const handleResponses = async (c: Context) => {
     responsesTransport,
   )
   if (useMessagesFallback) {
+    filterReasoningForTransport(payload, true)
     return await handleResponsesViaMessages(c, {
       payload,
       publicModel: requestedModel,
@@ -141,6 +143,8 @@ export const handleResponses = async (c: Context) => {
       400,
     )
   }
+
+  filterReasoningForTransport(payload, false)
 
   const recordUsage = createCopilotTokenUsageRecorder({
     endpoint: "responses",

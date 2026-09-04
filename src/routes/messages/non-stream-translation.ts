@@ -631,8 +631,11 @@ function mapOpenAIChatCompletionUsage(
 function getOpenAIReasoningText(message: {
   reasoning_content?: string | null
   reasoning_text?: string | null
+  reasoning?: string | null
 }): string | null | undefined {
-  return message.reasoning_text ?? message.reasoning_content
+  return (
+    message.reasoning_text ?? message.reasoning_content ?? message.reasoning
+  )
 }
 
 function getAnthropicTextBlocks(

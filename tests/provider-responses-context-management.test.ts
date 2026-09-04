@@ -859,6 +859,108 @@ describe("provider Responses context management", () => {
   })
 })
 
+describe("provider Responses reasoning transport isolation", () => {
+  test("keeps only Messages reasoning when falling back to an Anthropic provider", async () => {
+    providerConfig = {
+      apiKey: "provider-key",
+      authType: "x-api-key",
+      baseUrl: "https://anthropic.example",
+      models: { "claude-test": {} },
+      name: "anthropic",
+      type: "anthropic",
+    }
+    fetchMock.mockImplementation(() =>
+      Promise.resolve(
+        Response.json({
+          content: [{ type: "text", text: "done" }],
+          id: "msg-switch",
+          model: "claude-test",
+          role: "assistant",
+          stop_reason: "end_turn",
+          stop_sequence: null,
+          type: "message",
+          usage: { input_tokens: 8, output_tokens: 2 },
+        }),
+      ),
+    )
+
+    const response = await createApp().request("/v1/responses", {
+      body: JSON.stringify({
+        model: "anthropic/claude-test",
+        input: [
+          {
+            id: "rs_native",
+            type: "reasoning",
+            summary: [],
+            encrypted_content: "native-reasoning",
+          },
+          { role: "assistant", type: "message", content: "Visible answer" },
+          {
+            id: "rs_messages__a1",
+            type: "reasoning",
+            summary: [],
+            encrypted_content: "messages-reasoning",
+          },
+          { role: "user", type: "message", content: "Continue" },
+        ],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    })
+
+    expect(response.status).toBe(200)
+    const [, init] = fetchMock.mock.calls[0] ?? []
+    const body = parseJsonRequestBody((init as RequestInit).body) as {
+      messages: Array<{ content: unknown }>
+    }
+    const blocks = body.messages.flatMap((message) =>
+      Array.isArray(message.content) ?
+        (message.content as Array<Record<string, unknown>>)
+      : [],
+    )
+    const signatures = blocks
+      .filter((block) => block.type === "thinking")
+      .map((block) => block.signature)
+    expect(signatures).toEqual(["messages-reasoning"])
+    expect(blocks).toContainEqual({ type: "text", text: "Visible answer" })
+  })
+
+  test("drops Messages reasoning when forwarding to an openai-responses provider", async () => {
+    const response = await createApp().request("/v1/responses", {
+      body: JSON.stringify({
+        model: "openai/gpt-test",
+        input: [
+          {
+            id: "rs_native",
+            type: "reasoning",
+            summary: [],
+            encrypted_content: "native-reasoning",
+          },
+          {
+            id: "rs_messages__a1",
+            type: "reasoning",
+            summary: [],
+            encrypted_content: "messages-reasoning",
+          },
+          { role: "user", type: "message", content: "Continue" },
+        ],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    })
+
+    expect(response.status).toBe(200)
+    const [, init] = fetchMock.mock.calls[0] ?? []
+    const body = parseJsonRequestBody((init as RequestInit).body) as {
+      input: Array<Record<string, unknown>>
+    }
+    const reasoningIds = body.input
+      .filter((item) => item.type === "reasoning")
+      .map((item) => item.id)
+    expect(reasoningIds).toEqual(["rs_native"])
+  })
+})
+
 const createDeferred = (): {
   promise: Promise<void>
   resolve: () => void

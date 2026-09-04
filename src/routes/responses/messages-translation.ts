@@ -34,6 +34,13 @@ import type {
 } from "~/lib/types/responses"
 
 export const MESSAGES_COMPACTION_PREFIX = "copilot-api:messages-compaction:v1:"
+const MESSAGES_REASONING_ID_SUFFIX = "__a1"
+
+export const markMessagesReasoningId = (id: string): string =>
+  `${id}${MESSAGES_REASONING_ID_SUFFIX}`
+
+export const isMessagesReasoningId = (id: unknown): boolean =>
+  typeof id === "string" && id.endsWith(MESSAGES_REASONING_ID_SUFFIX)
 
 export const MESSAGES_COMPACTION_PROMPT = [
   "You are performing a CONTEXT CHECKPOINT COMPACTION. Create a handoff summary for another LLM that will resume the task.",
@@ -56,6 +63,7 @@ export const MESSAGES_TOOL_CALL_TIPS = [
   '- The functions__exec tool accepts parameters only as {"input":"..."}; put the complete executable code inside input, including properly constructed tools.exec_command(...) calls and text(...) output handling.',
   "- Construct all tools.exec_command(...) arguments strictly according to its tool definition, and use OS/shell-compatible commands for Windows, Linux, and macOS.",
   "- Always assign the awaited tools.exec_command(...) call to a variable, then forward its output with text(result.output) and inspect result.exit_code; unforwarded output is silently dropped and makes results look empty.",
+  "- Yielded execution is not truncated output. Resume a running `cell_id` with `functions.wait`, and a live `session_id` with `tools.write_stdin`, until the command reaches a terminal result.",
   "- Read files with the OS-native command (Get-Content/Test-Path on Windows PowerShell, cat/ls on POSIX), quote paths containing spaces, and verify the forwarded output is non-empty before concluding a file was read.",
 ].join("\n")
 
@@ -676,7 +684,7 @@ function translateInputReasoning(
     : ""
   appendAssistantBlock(messages, {
     type: "thinking",
-    thinking: thinking || "Thinking...",
+    thinking: thinking || "",
     signature: item.encrypted_content ?? "",
   })
 }
@@ -940,7 +948,9 @@ function translateAssistantOutput(
   for (const [index, block] of response.content.entries()) {
     if (block.type === "thinking") {
       output.push({
-        id: `rs_${createStableHash(`${response.id}:${index}:reasoning`)}`,
+        id: markMessagesReasoningId(
+          `rs_${createStableHash(`${response.id}:${index}:reasoning`)}`,
+        ),
         type: "reasoning",
         status: "completed",
         ...(block.thinking && block.thinking !== "Thinking..." ?
@@ -982,7 +992,6 @@ function translateToolUseOutput(
 ): ResponseOutputFunctionCall | ResponseOutputCustomToolCall {
   const descriptor = resolveToolDescriptor(registry, block.name)
   const common = {
-    id: `fc_${createStableHash(idSeed)}`,
     call_id: block.id,
     name: descriptor.name,
     status: "completed" as const,
@@ -991,12 +1000,14 @@ function translateToolUseOutput(
   if (descriptor.kind === "custom") {
     return {
       ...common,
+      id: `ctc_${createStableHash(idSeed)}`,
       type: "custom_tool_call",
       input: decodeCustomToolInput(block.input),
     }
   }
   return {
     ...common,
+    id: `fc_${createStableHash(idSeed)}`,
     type: "function_call",
     arguments: JSON.stringify(block.input),
   }

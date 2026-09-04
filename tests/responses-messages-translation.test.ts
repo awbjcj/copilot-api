@@ -39,6 +39,12 @@ const expectCanonicalBase64 = (value: string | undefined) => {
 }
 
 describe("Responses Lite to Messages translation", () => {
+  test("includes yielded execution resume guidance in tool call tips", () => {
+    expect(MESSAGES_TOOL_CALL_TIPS).toContain(
+      "- Yielded execution is not truncated output. Resume a running `cell_id` with `functions.wait`, and a live `session_id` with `tools.write_stdin`, until the command reaches a terminal result.",
+    )
+  })
+
   test("prefers request session affinity for metadata user id", () => {
     const result = requestContext.run(
       {
@@ -624,6 +630,43 @@ describe("Responses Lite to Messages translation", () => {
     ])
   })
 
+  test("keeps an empty thinking text for reasoning items without a summary", () => {
+    const result = translate({
+      input: [
+        { role: "user", content: "What is 2 + 2?", type: "message" },
+        {
+          id: "reasoning-1",
+          type: "reasoning",
+          summary: [],
+          encrypted_content: "reasoning-signature",
+        },
+      ],
+    })
+
+    expect(result.messagesPayload.messages).toEqual([
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "What is 2 + 2?",
+            cache_control: { type: "ephemeral" },
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "thinking",
+            thinking: "",
+            signature: "reasoning-signature",
+          },
+        ],
+      },
+    ])
+  })
+
   test("restores namespace on Responses function calls", () => {
     const translation = translate({
       input: [
@@ -873,6 +916,35 @@ describe("Responses Lite to Messages translation", () => {
     ).toEqual({ effort: "max" })
   })
 
+  test("marks reasoning translated from a Messages response", () => {
+    const translation = translate({ input: "Explain the result" })
+    const result = translateAnthropicToResponses(
+      {
+        content: [
+          {
+            type: "thinking",
+            thinking: "Check the result.",
+            signature: "claude-signature",
+          },
+        ],
+        id: "msg_reasoning",
+        model: "claude-sonnet-4.6",
+        role: "assistant",
+        stop_reason: "end_turn",
+        stop_sequence: null,
+        type: "message",
+        usage: { input_tokens: 8, output_tokens: 3 },
+      },
+      translation,
+    )
+
+    expect(result.output[0]).toMatchObject({
+      type: "reasoning",
+      encrypted_content: "claude-signature",
+    })
+    expect(result.output[0]?.id?.endsWith("__a1")).toBe(true)
+  })
+
   test("translates an apply_patch tool use back to a custom tool call", () => {
     const translation = translate({
       input: [
@@ -903,6 +975,7 @@ describe("Responses Lite to Messages translation", () => {
     }
 
     const result = translateAnthropicToResponses(response, translation)
+    expect(result.output[0]?.id).toMatch(/^ctc_/)
     expect(result.output).toMatchObject([
       {
         type: "custom_tool_call",
@@ -1013,6 +1086,7 @@ describe("Responses Lite to Messages translation", () => {
       outputDone?.type === "response.output_item.done"
       && outputDone.item.type === "custom_tool_call"
     ) {
+      expect(outputDone.item.id).toMatch(/^ctc_/)
       expect(outputDone.item).toMatchObject({
         type: "custom_tool_call",
         name: "apply_patch",
@@ -1091,6 +1165,8 @@ describe("Responses Lite to Messages translation", () => {
     })
 
     expect(reasoningItems).toHaveLength(4)
+    expect(new Set(reasoningItems.map((item) => item.id)).size).toBe(2)
+    expect(reasoningItems.every((item) => item.id.endsWith("__a1"))).toBe(true)
     expect(reasoningItems[0]?.encrypted_content).toBe("")
     expect(reasoningItems[1]?.encrypted_content).toBe("")
     expect(reasoningItems[2]?.encrypted_content).toBe("")
