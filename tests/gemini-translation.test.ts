@@ -63,6 +63,132 @@ describe("convertGeminiToMessages", () => {
     ])
   })
 
+  test("maps camelCase inlineData images to image_url content parts", () => {
+    const messages = convertGeminiToMessages({
+      contents: [
+        {
+          role: "user",
+          parts: [
+            { text: "what is this?" },
+            { inlineData: { mimeType: "image/png", data: "QUJD" } },
+          ],
+        },
+      ],
+    })
+
+    expect(messages).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "what is this?" },
+          {
+            type: "image_url",
+            image_url: { url: "data:image/png;base64,QUJD" },
+          },
+        ],
+      },
+    ])
+  })
+
+  test("maps snake_case inline_data images and image-only turns", () => {
+    const messages = convertGeminiToMessages({
+      contents: [
+        {
+          role: "user",
+          parts: [{ inline_data: { mime_type: "image/jpeg", data: "QUJD" } }],
+        },
+      ],
+    })
+
+    expect(messages).toEqual([
+      {
+        role: "user",
+        content: [
+          {
+            type: "image_url",
+            image_url: { url: "data:image/jpeg;base64,QUJD" },
+          },
+        ],
+      },
+    ])
+  })
+
+  test("drops non-image inline data and keeps the plain string shape", () => {
+    const messages = convertGeminiToMessages({
+      contents: [
+        {
+          role: "user",
+          parts: [
+            { text: "listen" },
+            { inlineData: { mimeType: "audio/wav", data: "QUJD" } },
+          ],
+        },
+      ],
+    })
+
+    expect(messages).toEqual([{ role: "user", content: "listen" }])
+  })
+
+  test("converts URL-safe base64 inline data to standard base64", () => {
+    // google-genai SDKs emit proto-JSON bytes in the URL-safe alphabet with
+    // optional padding; a data URL must carry standard base64 or Copilot
+    // rejects the request with a 400.
+    const bytes = Uint8Array.from([0xfb, 0xef, 0xbe, 0xff])
+    const urlSafe = Buffer.from(bytes).toString("base64url")
+    expect(urlSafe).toContain("-")
+    expect(urlSafe).toContain("_")
+
+    const messages = convertGeminiToMessages({
+      contents: [
+        {
+          role: "user",
+          parts: [{ inlineData: { mimeType: "image/png", data: urlSafe } }],
+        },
+      ],
+    })
+
+    const content = messages[0].content as Array<{
+      image_url: { url: string }
+    }>
+    const encoded = content[0].image_url.url.split(",")[1]
+    expect(encoded).toBe(Buffer.from(bytes).toString("base64"))
+    expect(Buffer.from(encoded, "base64")).toEqual(Buffer.from(bytes))
+  })
+
+  test("moves images on a function-response turn into a user message", () => {
+    const messages = convertGeminiToMessages({
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              functionResponse: { name: "read_file", response: { ok: true } },
+            },
+            { inlineData: { mimeType: "image/png", data: "QUJD" } },
+          ],
+        },
+      ],
+    })
+
+    expect(messages).toEqual([
+      {
+        role: "tool",
+        content: JSON.stringify({ ok: true }),
+        tool_call_id: geminiToolCallId("read_file"),
+        name: "read_file",
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "image_url",
+            image_url: { url: "data:image/png;base64,QUJD" },
+          },
+        ],
+      },
+    ])
+  })
+
   test("maps model function calls to tool_calls", () => {
     const messages = convertGeminiToMessages({
       contents: [

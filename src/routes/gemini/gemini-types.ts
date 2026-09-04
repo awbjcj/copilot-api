@@ -11,9 +11,14 @@
 // @see https://ai.google.dev/api/generate-content
 
 /**
- * A single Gemini content part. Text and function-call/response parts are
- * supported; other part kinds (inlineData, fileData) are ignored during
- * conversion since the internal format is text/tool oriented.
+ * A single Gemini content part. Text, inline image data, and
+ * function-call/response parts are supported; other part kinds (fileData) are
+ * ignored during conversion since the internal format is text/tool/image
+ * oriented.
+ *
+ * Inline data is accepted in both the camelCase (`inlineData`/`mimeType`) form
+ * the google-genai SDKs send and the snake_case (`inline_data`/`mime_type`)
+ * proto-JSON form the REST API also accepts.
  *
  * A text part with `thought: true` represents model reasoning ("thinking").
  * `thoughtSignature` carries the opaque signature Gemini requires to be echoed
@@ -21,11 +26,25 @@
  */
 export type GeminiPart =
   | { text: string; thought?: boolean; thoughtSignature?: string }
+  | { inlineData: GeminiInlineData }
+  | { inline_data: GeminiInlineDataSnake }
   | {
       functionCall: { name: string; args?: Record<string, unknown> }
       thoughtSignature?: string
     }
   | { functionResponse: { name: string; response: unknown } }
+
+/** Base64-encoded inline media, camelCase form (google-genai SDKs). */
+export interface GeminiInlineData {
+  mimeType: string
+  data: string
+}
+
+/** Base64-encoded inline media, proto-JSON snake_case form. */
+export interface GeminiInlineDataSnake {
+  mime_type: string
+  data: string
+}
 
 /**
  * A Gemini content turn. Role is 'user' (human/tool input) or 'model'

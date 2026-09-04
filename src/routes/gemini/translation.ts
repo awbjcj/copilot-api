@@ -1,6 +1,8 @@
 import type {
   ChatCompletionResponse,
   ChatCompletionsPayload,
+  ContentPart,
+  ImagePart,
   Message,
   Tool,
   ToolCall,
@@ -131,11 +133,81 @@ function geminiPartsText(parts: Array<GeminiPart>): string {
 }
 
 /**
+ * Normalizes proto-JSON `bytes` to standard base64.
+ *
+ * Proto3 JSON allows either standard or URL-safe base64 for `bytes` fields,
+ * and the google-genai SDKs emit the URL-safe alphabet (`-`/`_`, padding
+ * optional). A data URL must carry standard base64, so an unconverted payload
+ * is rejected upstream with a 400.
+ */
+function toStandardBase64(data: string): string {
+  const standard = data.replaceAll("-", "+").replaceAll("_", "/")
+  const remainder = standard.length % 4
+  return remainder === 0 ? standard : standard + "=".repeat(4 - remainder)
+}
+
+/**
+ * Extracts inline media parts as OpenAI `image_url` content parts.
+ *
+ * Copilot's chat-completions endpoint takes images as data URLs, and
+ * `createChatCompletions` turns any `image_url` part into a vision request, so
+ * translating here is all that is needed for Gemini-dialect clients to send
+ * images through the proxy. Non-image inline data (audio, video) is dropped
+ * because the internal format has no equivalent part.
+ */
+function geminiInlineImageParts(parts: Array<GeminiPart>): Array<ImagePart> {
+  const images: Array<ImagePart> = []
+  for (const part of parts) {
+    const camel = (part as { inlineData?: unknown }).inlineData
+    const snake = (part as { inline_data?: unknown }).inline_data
+    const inline = (camel ?? snake) as
+      | { mimeType?: unknown; mime_type?: unknown; data?: unknown }
+      | undefined
+    if (!inline) continue
+    const mimeType =
+      typeof inline.mimeType === "string" ? inline.mimeType
+      : typeof inline.mime_type === "string" ? inline.mime_type
+      : undefined
+    if (
+      !mimeType
+      || !mimeType.startsWith("image/")
+      || typeof inline.data !== "string"
+      || !inline.data
+    ) {
+      continue
+    }
+    images.push({
+      type: "image_url",
+      image_url: {
+        url: `data:${mimeType};base64,${toStandardBase64(inline.data)}`,
+      },
+    })
+  }
+  return images
+}
+
+/**
+ * Builds the content for a user message, keeping the plain-string shape when
+ * there are no images so existing text-only behaviour is byte-identical.
+ */
+function buildUserContent(
+  text: string,
+  images: Array<ImagePart>,
+): string | Array<ContentPart> {
+  if (images.length === 0) return text
+  const parts: Array<ContentPart> = []
+  if (text) parts.push({ type: "text", text })
+  parts.push(...images)
+  return parts
+}
+
+/**
  * Converts Gemini content turns (plus systemInstruction) to internal messages.
  *
  * - systemInstruction -> system message
  * - role 'model' -> assistant; functionCall parts -> tool_calls
  * - role 'user' -> user; functionResponse parts -> tool result messages
+ * - inlineData image parts on a user turn -> OpenAI `image_url` content parts
  */
 export function convertGeminiToMessages(
   request: GeminiRequest,
@@ -197,6 +269,7 @@ export function convertGeminiToMessages(
         })
       }
     } else if (functionResponses.length > 0) {
+      const images = geminiInlineImageParts(parts)
       for (const fr of functionResponses) {
         const value = fr.functionResponse.response
         const resultText =
@@ -208,11 +281,19 @@ export function convertGeminiToMessages(
           name: fr.functionResponse.name,
         })
       }
-      if (textParts) {
-        messages.push({ role: "user", content: textParts })
+      // Images cannot ride along on a tool message, so any inline media on a
+      // function-response turn is emitted as a following user message.
+      if (textParts || images.length > 0) {
+        messages.push({
+          role: "user",
+          content: buildUserContent(textParts, images),
+        })
       }
     } else {
-      messages.push({ role: "user", content: textParts })
+      messages.push({
+        role: "user",
+        content: buildUserContent(textParts, geminiInlineImageParts(parts)),
+      })
     }
   }
 
