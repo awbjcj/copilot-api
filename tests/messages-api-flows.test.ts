@@ -596,7 +596,7 @@ test("messages Messages flow records Copilot AIU from streaming message delta", 
   const usageEvents = await getTokenUsageEventsPage({
     page: 1,
     pageSize: 10,
-    period: "day",
+    period: "today",
   })
 
   expect(capturedMessagesPayload?.model).toBe("claude-sonnet-4.6")
@@ -882,7 +882,7 @@ test("messages Messages flow records Copilot AIU from non-streaming response", a
   const usageEvents = await getTokenUsageEventsPage({
     page: 1,
     pageSize: 10,
-    period: "day",
+    period: "today",
   })
 
   expect(capturedMessagesPayload?.model).toBe("claude-sonnet-4.6")

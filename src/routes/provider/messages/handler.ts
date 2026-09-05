@@ -22,7 +22,9 @@ import type {
 
 import {
   type ModelConfig,
+  type ProviderAuthType,
   type ResolvedProviderConfig,
+  type ProviderType,
   getClaudeAutoModel,
   resolveEffectiveProviderType,
   resolveProviderAuthType,
@@ -103,6 +105,22 @@ const logger = createHandlerLogger("provider-messages-handler")
 
 export const providerMessagesHandlerDependencies = {
   resolveProviderConfig,
+}
+
+const resolveOverrideProviderAuthType = (
+  providerConfig: ResolvedProviderConfig,
+  effectiveType: ProviderType,
+): ProviderAuthType => {
+  // azure-entra and oauth2 are explicit credentials, never protocol defaults:
+  // recomputing the auth type for the override would drop them and send the
+  // token with the wrong scheme (e.g. an Entra token as x-api-key).
+  if (
+    providerConfig.authType === "azure-entra"
+    || providerConfig.authType === "oauth2"
+  ) {
+    return providerConfig.authType
+  }
+  return resolveProviderAuthType(providerConfig.name, undefined, effectiveType)
 }
 
 export async function handleProviderMessages(
@@ -210,9 +228,8 @@ export async function handleProviderMessagesForProvider(
       : {
           ...providerConfig,
           type: effectiveType,
-          authType: resolveProviderAuthType(
-            providerConfig.name,
-            undefined,
+          authType: resolveOverrideProviderAuthType(
+            providerConfig,
             effectiveType,
           ),
         },

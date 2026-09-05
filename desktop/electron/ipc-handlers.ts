@@ -362,10 +362,18 @@ export function registerIpcHandlers(
     }
   })
 
+  const TOKEN_USAGE_PERIODS = new Set([
+    'today',
+    'this_week',
+    'last_7_days',
+    'this_month',
+    'last_30_days',
+    'lifetime',
+  ])
+
   ipcMain.handle('server:fetch-token-usage', async (_event, period: string) => {
     const port = getPort()
-    const normalizedPeriod =
-      period === 'week' || period === 'month' ? period : 'day'
+    const normalizedPeriod = TOKEN_USAGE_PERIODS.has(period) ? period : 'today'
     try {
       const headers = await getServerRequestHeaders()
       const res = await fetch(
@@ -387,7 +395,7 @@ export function registerIpcHandlers(
     async (_event, period: string) => {
       const port = getPort()
       const normalizedPeriod =
-        period === 'week' || period === 'month' ? period : 'day'
+        TOKEN_USAGE_PERIODS.has(period) ? period : 'today'
       try {
         const headers = await getServerRequestHeaders()
         const res = await fetch(
@@ -410,7 +418,7 @@ export function registerIpcHandlers(
     async (_event, period: string, page: number, pageSize: number) => {
       const port = getPort()
       const normalizedPeriod =
-        period === 'week' || period === 'month' ? period : 'day'
+        TOKEN_USAGE_PERIODS.has(period) ? period : 'today'
       const normalizedPage =
         Number.isFinite(page) && page > 0 ? Math.floor(page) : 1
       const normalizedPageSize =

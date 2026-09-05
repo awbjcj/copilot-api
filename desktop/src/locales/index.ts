@@ -74,9 +74,12 @@ export interface Locale {
     tokenUsageModelBreakdown: string
     tokenUsageOutput: string
     tokenUsagePage: string
-    tokenUsagePeriodDay: string
-    tokenUsagePeriodMonth: string
-    tokenUsagePeriodWeek: string
+    tokenUsagePeriodToday: string
+    tokenUsagePeriodThisWeek: string
+    tokenUsagePeriodLast7Days: string
+    tokenUsagePeriodThisMonth: string
+    tokenUsagePeriodLast30Days: string
+    tokenUsagePeriodLifetime: string
     tokenUsageProvider: string
     tokenUsageRequests: string
     tokenUsageSession: string

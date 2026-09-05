@@ -30,6 +30,10 @@ const { providerMessageRoutes } = await import(
   "~/routes/provider/messages/route"
 )
 
+const { providerMessagesHandlerDependencies } = await import(
+  "~/routes/provider/messages/handler"
+)
+
 const originalFetch = globalThis.fetch
 const fetchMock = mock(() => Promise.resolve(upstreamResponseFactory()))
 
@@ -452,5 +456,72 @@ describe("provider Messages Responses forwarding", () => {
       },
     ])
     expect(recordedUsages).toEqual([{}])
+  })
+})
+
+describe("provider Messages per-model type override auth", () => {
+  const originalResolveProviderConfig =
+    providerMessagesHandlerDependencies.resolveProviderConfig
+
+  afterEach(() => {
+    providerMessagesHandlerDependencies.resolveProviderConfig =
+      originalResolveProviderConfig
+  })
+
+  const stubResolvedConfig = (config: ResolvedProviderConfig): void => {
+    providerMessagesHandlerDependencies.resolveProviderConfig = () =>
+      Promise.resolve(config)
+  }
+
+  const lastUpstreamHeaders = (): Record<string, string> => {
+    const lastCall = fetchMock.mock.calls.at(-1) as unknown as [
+      unknown,
+      { headers: Record<string, string> },
+    ]
+    return lastCall[1].headers
+  }
+
+  test("preserves azure-entra auth when a model overrides the provider type", async () => {
+    stubResolvedConfig({
+      apiKey: "entra-access-token",
+      authType: "azure-entra",
+      baseUrl: "https://foundry.example/openai",
+      models: { "claude-sonnet-4": { type: "anthropic" } },
+      name: "foundry",
+      type: "openai-compatible",
+    })
+
+    const response = await createApp().request("/foundry/v1/messages", {
+      body: JSON.stringify(createMessagesPayload()),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    })
+
+    expect(response.status).toBe(200)
+    const headers = lastUpstreamHeaders()
+    expect(headers.authorization).toBe("Bearer entra-access-token")
+    expect(headers["x-api-key"]).toBeUndefined()
+  })
+
+  test("falls back to the override type default for regular auth types", async () => {
+    stubResolvedConfig({
+      apiKey: "provider-key",
+      authType: "authorization",
+      baseUrl: "https://mixed.example",
+      models: { "claude-sonnet-4": { type: "anthropic" } },
+      name: "mixed",
+      type: "openai-compatible",
+    })
+
+    const response = await createApp().request("/mixed/v1/messages", {
+      body: JSON.stringify(createMessagesPayload()),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    })
+
+    expect(response.status).toBe(200)
+    const headers = lastUpstreamHeaders()
+    expect(headers["x-api-key"]).toBe("provider-key")
+    expect(headers.authorization).toBeUndefined()
   })
 })

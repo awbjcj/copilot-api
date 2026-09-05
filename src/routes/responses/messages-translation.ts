@@ -62,7 +62,7 @@ export const MESSAGES_TOOL_CALL_TIPS = [
   "- Do NOT call `exec_command` directly; that tool does not exist. Use `functions__exec` to run commands instead.",
   '- The functions__exec tool accepts parameters only as {"input":"..."}; put the complete executable code inside input, including properly constructed tools.exec_command(...) calls and text(...) output handling.',
   "- Construct all tools.exec_command(...) arguments strictly according to its tool definition, and use OS/shell-compatible commands for Windows, Linux, and macOS.",
-  "- Always assign the awaited tools.exec_command(...) call to a variable, then forward its output with text(result.output) and inspect result.exit_code; unforwarded output is silently dropped and makes results look empty.",
+  "- Always assign the awaited tools.exec_command(...) call to a variable and forward the full result with text(JSON.stringify(r)); unforwarded output is silently dropped and makes results look empty.",
   "- Yielded execution is not truncated output. Resume a running `cell_id` with `functions.wait`, and a live `session_id` with `tools.write_stdin`, until the command reaches a terminal result.",
   "- Read files with the OS-native command (Get-Content/Test-Path on Windows PowerShell, cat/ls on POSIX), quote paths containing spaces, and verify the forwarded output is non-empty before concluding a file was read.",
 ].join("\n")

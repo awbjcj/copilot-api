@@ -140,6 +140,25 @@ export class BuiltinProviderModelRegistry {
           ],
         },
       },
+      "gpt-6-astra": {
+        pricing: {
+          tiers: [
+            {
+              cacheCreationInput: 12.5,
+              cachedInput: 1,
+              input: 10,
+              maxInputTokens: 272_000,
+              output: 50,
+            },
+            {
+              cacheCreationInput: 25,
+              cachedInput: 2,
+              input: 20,
+              output: 75,
+            },
+          ],
+        },
+      },
     },
     dashscope: {
       "glm-5.1": {
