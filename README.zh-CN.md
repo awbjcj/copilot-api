@@ -434,8 +434,11 @@ npx @jeffreycao/copilot-api@latest start
 带参数示例：
 
 ```sh
-npx @jeffreycao/copilot-api@latest start --port 8080
+npx @jeffreycao/copilot-api@latest auth keys --add your-gateway-api-key
+npx @jeffreycao/copilot-api@latest start --host 0.0.0.0 --port 8080
 ```
+
+绑定到 `0.0.0.0` 会将网关暴露到网络，因此服务要求至少配置一个网关 API Key，并将 CORS 限制为同源请求。
 
 如果只想做认证或 provider 配置：
 
@@ -464,16 +467,20 @@ docker build -t copilot-api .
 
 ```sh
 mkdir -p ./copilot-data
+docker run --rm -v $(pwd)/copilot-data:/root/.local/share/copilot-api copilot-api --auth keys --add your-gateway-api-key
 docker run -p 4141:4141 -v $(pwd)/copilot-data:/root/.local/share/copilot-api copilot-api
 ```
 
 这会把宿主机上的 `./copilot-data` 映射到容器内的 `/root/.local/share/copilot-api`，用于持久化 GitHub 认证数据、provider 配置和其他 gateway 状态。
+镜像会显式监听 `0.0.0.0` 以支持 Docker 端口映射，并在未配置网关 API Key 时拒绝启动。非回环监听还会将 CORS 限制为请求自身的同源地址。
 
 也可以直接通过环境变量传入 GitHub token：
 
 ```sh
-docker run -p 4141:4141 -e GH_TOKEN=your_github_token_here copilot-api
+docker run -p 4141:4141 -v $(pwd)/copilot-data:/root/.local/share/copilot-api -e GH_TOKEN=your_github_token_here copilot-api
 ```
+
+entrypoint 会把 `GH_TOKEN` 导出为 `COPILOT_API_GITHUB_TOKEN`，因此 token 是通过环境变量交给服务的，不会出现在进程参数里。
 
 <a id="electron-desktop-app"></a>
 
@@ -572,7 +579,7 @@ Claude Code 集成现在拆分为两个插件：
 
 `agent-inject` 还会注册一个 `UserPromptSubmit` hook，并返回 `{"continue": true}`；同时它也可以通过环境变量注入 `SessionStart` reminder 规则：
 
-- `CLAUDE_PLUGIN_ENABLE_QUESTION_RULES=1` 会自动为 Claude Code 启用两条关于使用 `question` 工具的提醒。你也可以把同样的提醒手动写进 `CLAUDE.md`；见 [CLAUDE.md 或 AGENTS.md 推荐内容](#claudemd-or-agentsmd-recommended-content)。
+- `CLAUDE_PLUGIN_ENABLE_QUESTION_RULES=1` 会自动为 Claude Code 启用两条关于使用 `question` 工具的提醒。
 - `CLAUDE_PLUGIN_ENABLE_NO_BACKGROUND_AGENTS_RULE=1` 会启用关于避免在 agent hooks 中使用 `run_in_background: true` 的提醒。
 
 `tool-search` 插件内置了 [GPT Tool Search](#gpt-tool-search) 一节描述的同一个 MCP bridge，因此安装该插件后，Claude Code 用户无需再手动配置 `tool_search` server。
@@ -670,12 +677,15 @@ Copilot API 现在使用子命令结构，主要命令包括：
 
 | 选项 | 说明 | 默认值 | 别名 |
 | --- | --- | --- | --- |
+| --host | 监听主机；非回环地址要求已配置网关 API Key | 127.0.0.1 | 无 |
 | --port | 监听端口 | 4141 | -p |
 | --verbose | 启用详细日志 | false | -v |
-| --github-token | 直接提供 GitHub token（必须通过 `auth` 子命令生成） | 无 | -g |
+| --github-token | 直接提供 GitHub token（必须通过 `auth` 子命令生成）；建议使用 `COPILOT_API_GITHUB_TOKEN`，命令行参数会出现在进程列表中 | 无 | -g |
 | --claude-code | 生成一个使用 Copilot API 配置启动 Claude Code 的命令 | false | -c |
 | --show-token | 在获取和刷新时显示 GitHub 与 Copilot token | false | 无 |
 | --proxy-env | 从环境变量初始化代理 | false | 无 |
+
+不建议把 GitHub token 放在命令行上：本机任意用户都能从进程列表里读到它，请优先使用 `COPILOT_API_GITHUB_TOKEN` 环境变量。token 的解析顺序为：`--github-token` → `COPILOT_API_GITHUB_TOKEN` → `auth login` 写入的 token 文件。
 
 ### Auth 命令选项
 
@@ -691,7 +701,7 @@ Copilot API 现在使用子命令结构，主要命令包括：
 
 使用 `copilot-api auth login --provider custom` 可以通过 CLI 新增或更新其他第三方 provider。命令会依次提示输入 provider name、项目支持的 type（`anthropic`、`openai-compatible` 或 `openai-responses`）、`baseUrl`、掩码显示的 `apiKey` 和 `authType`；`authType` 可保持 type 默认值，也可选择 `x-api-key` / `authorization`。
 
-网关 API Key 存放在 `config.json` 的 `auth.apiKeys` 中，可通过 `copilot-api auth keys` 管理（每次只执行一种操作）：`--add <key>` 添加、`--remove <key>` 删除、`--list` 列出全部、`--clear` 清空。客户端通过 `x-api-key` 或 `Authorization: Bearer` 使用任意已配置的 Key 认证。未配置任何 Key 时，`copilot-api start` 会以“不校验认证”的方式启动并输出一条 info 级别的启动提示。
+网关 API Key 存放在 `config.json` 的 `auth.apiKeys` 中，可通过 `copilot-api auth keys` 管理（每次只执行一种操作）：`--add <key>` 添加、`--remove <key>` 删除、`--list` 列出全部、`--clear` 清空。客户端通过 `x-api-key` 或 `Authorization: Bearer` 使用任意已配置的 Key 认证。未配置任何 Key 时，回环监听会以“不校验认证”的方式启动并输出一条 info 级别提示；非回环监听则拒绝启动。
 
 ### Debug 命令选项
 
@@ -730,8 +740,8 @@ Copilot API 现在使用子命令结构，主要命令包括：
     },
     "useMessagesApi": true,
     "useResponsesApiWebSocket": true,
-    "responsesTransport": {
-      "headersTimeoutMsV2": 300000,
+    "upstreamTransport": {
+      "headersTimeoutMs": 300000,
       "streamInactivityTimeoutMs": 300000,
       "websocketOpenTimeoutMs": 30000,
       "websocketPoolIdleTimeoutMs": 60000,
@@ -744,7 +754,7 @@ Copilot API 现在使用子命令结构，主要命令包括：
     "messageApiWebSearchModel": "gpt-5-mini"
   }
   ```
-- **auth.apiKeys：** 用于普通非 admin 路由的 API key。支持多个 key 轮换使用。请求可通过 `x-api-key: <key>` 或 `Authorization: Bearer <key>` 进行认证。若为空或省略，则普通路由的认证会被禁用。
+- **auth.apiKeys：** 用于普通非 admin 路由的 API key。支持多个 key 轮换使用。请求可通过 `x-api-key: <key>` 或 `Authorization: Bearer <key>` 进行认证。若为空或省略，仅回环监听会禁用普通路由认证；非回环监听会拒绝启动。
 - **auth.adminApiKey：** 仅用于 `/admin/*` 路由的单个 admin key。若未配置，服务会在启动时自动生成一个随机 key，并回写到 `config.json`。它同样使用 `x-api-key` 或 `Authorization: Bearer` 这两种头，但普通 `auth.apiKeys` 不能访问 `/admin/*`。
 - **modelMappings：** 用于顶层 `POST /v1/messages`、`POST /v1/messages/count_tokens`、`POST /v1/responses` 和 `POST /v1/chat/completions` 请求的精确 `sourceModel -> targetModel` 重写映射，这几类接口共用同一份规则。省略该字段或保留为 `{}` 时，不会做模型重写。`source` 和 `target` 都必须是非空字符串。`target` 可以是普通模型 ID，也可以是 `provider/model` 形式的别名，例如 `dashscope/qwen3.6-plus`；重写发生在 provider alias 解析之前。这些映射不再按接口区分。`GET/POST /admin/config/model-mappings` 管理接口读写的也只有这个字段。
 - **extraPrompts：** `model -> prompt` 的映射。把 Anthropic 风格请求翻译为 Responses API 时，会将其附加到第一条 system prompt 后面。你可以借此为不同模型注入护栏或指引。缺失的默认项会自动补齐，但不会覆盖你自定义的 prompt。对于 GPT-5.3+ 模型（如 `gpt-5.3-codex`、`gpt-5.4`、`gpt-5.5`），未显式配置时会自动使用内置的 commentary prompt。内置 prompt 会启用带阶段感知的 commentary，让模型在工具调用或更深层推理前先发出简短的用户可见进度说明。
@@ -778,8 +788,8 @@ Copilot API 现在使用子命令结构，主要命令包括：
   - **转发字段：** 走 Copilot 原生 Messages API 时，最终值写入 `output_config.effort`；转换为 Responses API 时，最终值写入 `reasoning.effort`。
   - **配置可选值：** `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`。
 - **useMessagesApi：** 当为 `true` 时，声明了 Copilot 原生 `/v1/messages` 端点的模型会使用 Messages API。如果所选模型未声明 Messages 端点或关闭了该配置，网关会在模型声明了 Responses 端点时使用 Responses，否则在模型支持时回退到 Chat Completions。设为 `false` 可跳过原生 Messages 路由。默认值为 `true`。
-- **useResponsesApiWebSocket：** 当为 `true` 时，Copilot Responses 请求会对声明了 `ws:/responses` 的模型使用 WebSocket；仅声明 `/responses` 的模型使用 HTTP。内置 `codex` provider 的流式 Responses 请求只要启用了该配置就会使用 WebSocket，非流式 Codex 请求始终使用 HTTP。设为 `false` 后，Copilot 会在所选模型声明了 `/responses` 时使用 HTTP，Codex 的流式 Responses 请求也会改走 HTTP。WebSocket 失败后不会自动通过 HTTP 重试。默认值为 `true`。如果代理、VPN 或网络会阻断或干扰 WebSocket 流量，请关闭该配置或切换网络。
-- **responsesTransport：** 所有上游 Responses transport 共用的生命周期与缓冲区正整数限制。无效值、零或负数会回退到上面列出的默认值。`headersTimeoutMsV2` 从连接建立开始计算，到收到 HTTP 响应头为止，并不是整个生成过程的总时限。每收到一个 HTTP body chunk 或 WebSocket message 都会重置 `streamInactivityTimeoutMs`，因此持续活跃的长推理任务不会被短总时限中断。`websocketOpenTimeoutMs` 限制 WebSocket 握手时间；`websocketPoolIdleTimeoutMs` 只控制已正常完成且可复用的空闲连接。WebSocket 队列同时受字节数和消息数上限约束；超过任一上限时会终止该 stream 并使 socket 失效，而不会丢弃或重排事件。
+- **useResponsesApiWebSocket：** 当为 `true` 时，Copilot Responses 请求会对声明了 `ws:/responses` 的模型使用 WebSocket；仅声明 `/responses` 的模型使用 HTTP。内置 `codex` provider 的流式 Responses 请求只要启用了该配置就会使用 WebSocket，非流式 Codex 请求始终使用 HTTP。设为 `false` 后，Copilot 会在所选模型声明了 `/responses` 时使用 HTTP，Codex 的流式 Responses 请求也会改走 HTTP。WebSocket 失败后不会自动通过 HTTP 重试。默认值为 `true`。如果代理、VPN 或网络会阻断或干扰 WebSocket 流量，请关闭该配置或切换网络。使用 GitHub Copilot provider 时遇到 `Encrypted function output content could not be decrypted or decoded`，同样把该配置设为 `false`，详见[故障排查](#troubleshooting)。
+- **upstreamTransport：** 上游 chat completions、responses、messages 三类请求共用的生命周期与缓冲区正整数限制。无效值、零或负数会回退到上面列出的默认值。`headersTimeoutMs` 从连接建立开始计算，到收到 HTTP 响应头为止，并不是整个生成过程的总时限。每收到一个 HTTP body chunk 或 WebSocket message 都会重置 `streamInactivityTimeoutMs`，因此持续活跃的长推理任务不会被短总时限中断。`websocketOpenTimeoutMs` 限制 WebSocket 握手时间；`websocketPoolIdleTimeoutMs` 只控制已正常完成且可复用的空闲连接。WebSocket 队列同时受字节数和消息数上限约束；超过任一上限时会终止该 stream 并使 socket 失效，而不会丢弃或重排事件。
 - **useResponsesApiWebSearch：** 当为 `true` 时，服务端会保留 Responses API 中 `type: "web_search"` 的工具并透传到上游。设为 `false` 则会从 `/responses` payload 中移除这些工具。默认值为 `true`。
 - **alphaSearchCodexPriority：** 默认值为 `true`。顶层 alpha-search 请求优先使用 Codex alpha-search 端点，因为它不会消耗 provider 配额。若 Codex 不可用，或该配置设为 `false`，使用非 `codex/model` 的 `provider/model` 别名的请求会调用目标 provider 的 `/v1/responses` 端点，没有 provider 前缀的请求使用 GitHub Copilot Responses web search。该适配器会识别当前所有 Codex search command；不受支持的 `image_query` 和 `screenshot` 会返回成功且明确要求不要重试的 tool output。
 - **alphaSearchModel：** Messages-backed 的 Responses Lite 模型不能直接执行 Responses web search 时使用的原生 Responses 搜索模型，默认值为 `gpt-5-mini`。可以配置普通 Copilot 模型或 `openai-responses` 类型的 `provider/model`；设为空字符串可禁用，此时这类模型的 alpha-search 请求会返回参数错误。
@@ -794,7 +804,7 @@ Copilot API 现在使用子命令结构，主要命令包括：
 
 ## API 认证
 
-- **受保护的普通路由：** 当配置了 `auth.apiKeys` 且非空时，除 `/`、`/usage-viewer` 和 `/usage-viewer/` 以外的普通路由都需要认证。
+- **受保护的普通路由：** 当配置了 `auth.apiKeys` 且非空时，除 `/`、`/usage-viewer` 和 `/usage-viewer/` 以外的普通路由都需要认证。非回环监听要求启动时存在非空的 `auth.apiKeys`，即使运行期间 Key 被清空也会继续以拒绝请求的方式安全失败。
 - **Admin 路由：** 所有 `/admin/*` 路由都要求 `auth.adminApiKey`。如果缺失，服务会在启动时自动生成并在开始提供服务前写回 `config.json`。
 - **允许的认证头：**
   - `x-api-key: <your_key>`
@@ -828,7 +838,7 @@ curl http://localhost:4141/admin/config/model-mappings \
 
 | 端点                        | 方法 | 说明                                                                                                     |
 | --------------------------- | ---- | -------------------------------------------------------------------------------------------------------- |
-| `POST /v1/responses`        | `POST` | OpenAI 中用于生成模型响应的高级接口。支持 `openai-responses` provider 的 `provider/model` 别名。        |
+| `POST /v1/responses`        | `POST` | OpenAI 中用于生成模型响应的高级接口。支持 `Content-Encoding: zstd` 请求体和 `openai-responses` provider 的 `provider/model` 别名。zstd 请求解压仅作用于 Responses 路由，包括 provider-scoped 别名路由。 |
 | `POST /v1/chat/completions` | `POST` | 为给定聊天对话创建模型响应。支持 `openai-compatible` provider 的 `provider/model` 别名；目标 provider 已配置时可在没有 Copilot 的情况下使用。 |
 | `GET /v1/models`            | `GET` | 列出 Copilot 模型以及已启用 provider 的 `provider/model-id` 模型。来自 Codex 客户端（`User-Agent` 以 `codex` 开头）的请求会转发到 Codex Models 上游。 |
 | `POST /v1/embeddings`       | `POST` | 创建表示输入文本的向量嵌入。                                                                             |
@@ -841,7 +851,7 @@ curl http://localhost:4141/admin/config/model-mappings \
 | ---------------------------------------------------------- | ---- | ---------------------------------------------------------------------------------------------------- |
 | `POST /v1/alpha/search`            | `POST` | 将 Codex alpha-search 请求路由到 Codex 后端，或在本地及通过 Responses web search 处理支持的命令。 |
 | `POST /v1/images/generations` | `POST` | 将 JSON 图片生成请求转发到 Codex Images 上游。请求未携带 `Content-Type` 时，网关默认补充 `application/json`。请求 `model` 命中已配置的 model mapping 时会被改写；映射结果为已配置 provider 的 `provider/model` 别名时，请求将转发到该 provider 的 images 端点。 |
-| `POST /v1/images/edits` | `POST` | 将图片编辑请求转发到 Codex Images 上游。请使用 `multipart/form-data`，并让 HTTP 客户端自动生成 `boundary`；网关会保留传入的 content type，并在转发前缓冲上传请求体。model mapping 与 `provider/model` 别名路由同样适用于此端点。 |
+| `POST /v1/images/edits` | `POST` | 将图片编辑请求转发到 Codex Images 上游。请使用 `multipart/form-data`，并让 HTTP 客户端自动生成 `boundary`；网关在接收上传时就把文件流式写入临时磁盘文件，转发时从磁盘读取，大文件不会常驻内存。multipart 请求总大小上限为 128 MiB，单文件上限为 64 MiB，最多包含 16 个文件；超过限制时返回 `413`。model mapping 与 `provider/model` 别名路由同样适用于此端点。 |
 
 对于路由到 Codex 后端的请求，网关会使用当前 Codex 登录态覆盖客户端的 authorization 和 account header，并保留兼容的请求元数据。基于 Responses 的 alpha-search 则遵循所选 Copilot 或 provider 的路由。
 
@@ -910,17 +920,18 @@ curl http://localhost:4141/dashscope/v1/messages \
   -d '{"model":"qwen3.6-plus","max_tokens":1024,"messages":[{"role":"user","content":"hello"}]}'
 ```
 
-<a id="usage-tips"></a>
+<a id="troubleshooting"></a>
 
-## 使用建议
+## 故障排查
 
-<a id="claudemd-or-agentsmd-recommended-content"></a>
+### GitHub Copilot 报错 `Encrypted function output content could not be decrypted or decoded`
 
-### CLAUDE.md 或 AGENTS.md 推荐内容
+使用 GitHub Copilot provider 时，如果响应或日志中出现 `Encrypted function output content could not be decrypted or decoded`，通常是上游 Copilot Responses 的 WebSocket 通道返回了当前无法解密的工具调用输出。把 `config.json` 里的 `useResponsesApiWebSocket` 设为 `false`，让 Copilot Responses 改走 HTTP `/responses` 即可绕过：
 
-与 `agent-inject` 插件 `CLAUDE_PLUGIN_ENABLE_QUESTION_RULES=1` 注入的提醒一致，供不使用该插件时手动添加。加入 Claude Code 的 `CLAUDE.md` 或 opencode/codex 的 `AGENTS.md`：
-
+```json
+{
+  "useResponsesApiWebSocket": false
+}
 ```
-- Prohibited from directly asking questions to users, MUST use question tool.
-- Once you can confirm that the task is complete, MUST use question tool to make user confirm. The user may respond with feedback if they are not satisfied with the result, which you can use to make improvements and try again, after try again, MUST use question tool to make user confirm again.
-```
+
+修改后重启服务生效。完整配置项说明见[配置（config.json）](#configuration-configjson)。

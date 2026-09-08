@@ -406,8 +406,11 @@ npx @jeffreycao/copilot-api@latest start
 With options:
 
 ```sh
-npx @jeffreycao/copilot-api@latest start --port 8080
+npx @jeffreycao/copilot-api@latest auth keys --add your-gateway-api-key
+npx @jeffreycao/copilot-api@latest start --host 0.0.0.0 --port 8080
 ```
+
+Binding to `0.0.0.0` exposes the gateway to the network, so the server requires at least one gateway API key and restricts CORS to same-origin requests.
 
 For authentication or provider configuration only:
 
@@ -434,16 +437,20 @@ Run the container with a bind mount so auth data survives restarts:
 
 ```sh
 mkdir -p ./copilot-data
+docker run --rm -v $(pwd)/copilot-data:/root/.local/share/copilot-api copilot-api --auth keys --add your-gateway-api-key
 docker run -p 4141:4141 -v $(pwd)/copilot-data:/root/.local/share/copilot-api copilot-api
 ```
 
 This stores GitHub auth data, provider config, and other gateway state in `./copilot-data` on the host, mapped to `/root/.local/share/copilot-api` in the container.
+The image explicitly listens on `0.0.0.0` so Docker port publishing works and refuses to start until at least one gateway API key is configured. Non-loopback listeners also restrict CORS to the request's own origin.
 
 Or pass a GitHub token directly:
 
 ```sh
-docker run -p 4141:4141 -e GH_TOKEN=your_github_token_here copilot-api
+docker run -p 4141:4141 -v $(pwd)/copilot-data:/root/.local/share/copilot-api -e GH_TOKEN=your_github_token_here copilot-api
 ```
+
+The entrypoint exports `GH_TOKEN` as `COPILOT_API_GITHUB_TOKEN`, so the token is handed to the server through the environment instead of the process arguments.
 
 ## Electron Desktop App
 
@@ -536,7 +543,7 @@ After installation, `agent-inject` injects `__SUBAGENT_MARKER__...` on `Subagent
 
 The `agent-inject` plugin also registers a `UserPromptSubmit` hook that returns `{"continue": true}`, and it can inject `SessionStart` reminder rules through environment variables:
 
-- `CLAUDE_PLUGIN_ENABLE_QUESTION_RULES=1` enables the two reminders about using the `question` tool automatically for Claude Code. Alternatively, you can add the same reminders manually in `CLAUDE.md`; see [CLAUDE.md or AGENTS.md Recommended Content](#claudemd-or-agentsmd-recommended-content).
+- `CLAUDE_PLUGIN_ENABLE_QUESTION_RULES=1` enables the two reminders about using the `question` tool automatically for Claude Code.
 - `CLAUDE_PLUGIN_ENABLE_NO_BACKGROUND_AGENTS_RULE=1` enables the `run_in_background: true` avoidance reminder for agent hooks.
 
 The `tool-search` plugin bundles the same MCP bridge described in [GPT Tool Search](#gpt-tool-search), so Claude Code users do not need to add the `tool_search` server manually when they install that plugin.
@@ -628,12 +635,15 @@ The following command line options are available for the `start` command:
 
 | Option         | Description                                                                   | Default    | Alias |
 | -------------- | ----------------------------------------------------------------------------- | ---------- | ----- |
+| --host         | Host to listen on; non-loopback hosts require a configured gateway API key   | 127.0.0.1 | none  |
 | --port         | Port to listen on                                                             | 4141       | -p    |
 | --verbose      | Enable verbose logging                                                        | false      | -v    |
-| --github-token | Provide GitHub token directly (must be generated using the `auth` subcommand) | none       | -g    |
+| --github-token | Provide GitHub token directly (must be generated using the `auth` subcommand); prefer `COPILOT_API_GITHUB_TOKEN`, since arguments are visible in the process list | none       | -g    |
 | --claude-code  | Generate a command to launch Claude Code with Copilot API config              | false      | -c    |
 | --show-token   | Show GitHub and Copilot tokens on fetch and refresh                           | false      | none  |
 | --proxy-env    | Initialize proxy from environment variables                                   | false      | none  |
+
+Passing the GitHub token on the command line exposes it to every local user through the process list, so prefer the `COPILOT_API_GITHUB_TOKEN` environment variable. The gateway resolves the token in this order: `--github-token` → `COPILOT_API_GITHUB_TOKEN` → the token file written by `auth login`.
 
 ### Auth Command Options
 
@@ -649,7 +659,7 @@ Use `copilot-api auth login --provider deepseek`, `--provider dashscope`, `--pro
 
 Use `copilot-api auth login --provider custom` to add or update another third-party provider from the CLI. The command prompts for the provider name, supported type (`anthropic`, `openai-compatible`, or `openai-responses`), `baseUrl`, masked `apiKey`, and `authType`; `authType` may be left as the type default or set to `x-api-key` / `authorization`.
 
-Gateway API keys live under `auth.apiKeys` in `config.json`. Manage them with `copilot-api auth keys` (one operation per invocation): add a key with `--add <key>`, remove one with `--remove <key>`, list all with `--list`, or clear them all with `--clear`. Clients authenticate with any configured key via `x-api-key` or `Authorization: Bearer`. When no keys are configured, `copilot-api start` starts with authentication bypassed and prints a startup info message.
+Gateway API keys live under `auth.apiKeys` in `config.json`. Manage them with `copilot-api auth keys` (one operation per invocation): add a key with `--add <key>`, remove one with `--remove <key>`, list all with `--list`, or clear them all with `--clear`. Clients authenticate with any configured key via `x-api-key` or `Authorization: Bearer`. Without keys, loopback listeners start with authentication bypassed and print an info message; non-loopback listeners refuse to start.
 
 ### Debug Command Options
 
@@ -686,8 +696,8 @@ Gateway API keys live under `auth.apiKeys` in `config.json`. Manage them with `c
     },
     "useMessagesApi": true,
     "useResponsesApiWebSocket": true,
-    "responsesTransport": {
-      "headersTimeoutMsV2": 300000,
+    "upstreamTransport": {
+      "headersTimeoutMs": 300000,
       "streamInactivityTimeoutMs": 300000,
       "websocketOpenTimeoutMs": 30000,
       "websocketPoolIdleTimeoutMs": 60000,
@@ -700,7 +710,7 @@ Gateway API keys live under `auth.apiKeys` in `config.json`. Manage them with `c
     "messageApiWebSearchModel": "gpt-5-mini"
   }
   ```
-- **auth.apiKeys:** API keys used for request authentication on non-admin routes. Supports multiple keys for rotation. Requests can authenticate with either `x-api-key: <key>` or `Authorization: Bearer <key>`. If empty or omitted, authentication for non-admin routes is disabled.
+- **auth.apiKeys:** API keys used for request authentication on non-admin routes. Supports multiple keys for rotation. Requests can authenticate with either `x-api-key: <key>` or `Authorization: Bearer <key>`. If empty or omitted, authentication for non-admin routes is disabled only on loopback listeners; non-loopback listeners refuse to start.
 - **auth.adminApiKey:** Single admin key used only for `/admin/*` routes. If missing, the server generates a random key at startup and writes it back to `config.json`. Requests use the same `x-api-key` or `Authorization: Bearer` headers, but regular `auth.apiKeys` never grant access to `/admin/*`.
 - **modelMappings:** Exact `sourceModel -> targetModel` rewrites shared by top-level `POST /v1/messages`, `POST /v1/messages/count_tokens`, `POST /v1/responses`, and `POST /v1/chat/completions` requests. Omit it or leave it as `{}` to disable rewrites. Both the source and target must be non-empty strings. Targets can be regular model IDs or `provider/model` aliases such as `dashscope/qwen3.6-plus`, and the rewrite happens before provider alias parsing. These mappings are not split per interface. The admin endpoints `GET/POST /admin/config/model-mappings` read and update only this field.
 - **extraPrompts:** Map of `model -> prompt` appended to the first system prompt when translating Anthropic-style requests to Responses API. Use this to inject guardrails or guidance per model. Missing default entries are auto-added without overwriting your custom prompts. For GPT-5.3+ models (e.g. `gpt-5.3-codex`, `gpt-5.4`, `gpt-5.5`), a built-in commentary prompt is used as fallback when not explicitly configured. The built-in prompts enable phase-aware commentary, which lets the model emit a short user-facing progress update before tools or deeper reasoning.
@@ -734,8 +744,8 @@ Gateway API keys live under `auth.apiKeys` in `config.json`. Manage them with `c
   - **Forwarding:** the resolved value remains `output_config.effort` for the Copilot native Messages API and becomes `reasoning.effort` when translated to the Responses API.
   - **Configuration values:** `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`.
 - **useMessagesApi:** When `true`, models that advertise Copilot's native `/v1/messages` endpoint use the Messages API. If Messages is disabled or unavailable for the selected model, the gateway uses Responses when that model advertises a Responses endpoint, then falls back to Chat Completions when supported. Set this to `false` to skip native Messages routing. Defaults to `true`.
-- **useResponsesApiWebSocket:** When `true`, Copilot Responses requests use WebSocket for models that advertise `ws:/responses`; models that advertise only `/responses` use HTTP. Streamed Responses requests for the built-in `codex` provider use WebSocket whenever this setting is enabled, while non-streaming Codex requests always use HTTP. Set this to `false` to make Copilot use HTTP `/responses` where the selected model advertises it and to send streamed Codex Responses requests over HTTP. WebSocket failures are not retried automatically over HTTP. Defaults to `true`. If a proxy, VPN, or network blocks or destabilizes WebSocket traffic, disable this setting or switch networks.
-- **responsesTransport:** Positive integer lifecycle and buffering limits for every upstream Responses transport. Invalid, zero, or negative values fall back to the defaults shown above. `headersTimeoutMsV2` covers connection setup through receipt of HTTP response headers; it is not a total generation deadline. `streamInactivityTimeoutMs` is reset by every HTTP body chunk or WebSocket message, allowing long generations to continue while they remain active. `websocketOpenTimeoutMs` limits the WebSocket handshake, while `websocketPoolIdleTimeoutMs` controls only completed, reusable pooled sockets. The byte and message limits bound queued WebSocket events; exceeding either limit fails that stream and invalidates its socket rather than dropping or reordering events.
+- **useResponsesApiWebSocket:** When `true`, Copilot Responses requests use WebSocket for models that advertise `ws:/responses`; models that advertise only `/responses` use HTTP. Streamed Responses requests for the built-in `codex` provider use WebSocket whenever this setting is enabled, while non-streaming Codex requests always use HTTP. Set this to `false` to make Copilot use HTTP `/responses` where the selected model advertises it and to send streamed Codex Responses requests over HTTP. WebSocket failures are not retried automatically over HTTP. Defaults to `true`. If a proxy, VPN, or network blocks or destabilizes WebSocket traffic, disable this setting or switch networks. Also set it to `false` when the GitHub Copilot provider fails with `Encrypted function output content could not be decrypted or decoded`; see [Troubleshooting](#troubleshooting).
+- **upstreamTransport:** Positive integer lifecycle and buffering limits for the upstream chat completions, responses, and messages transports. Invalid, zero, or negative values fall back to the defaults shown above. `headersTimeoutMs` covers connection setup through receipt of HTTP response headers; it is not a total generation deadline. `streamInactivityTimeoutMs` is reset by every HTTP body chunk or WebSocket message, allowing long generations to continue while they remain active. `websocketOpenTimeoutMs` limits the WebSocket handshake, while `websocketPoolIdleTimeoutMs` controls only completed, reusable pooled sockets. The byte and message limits bound queued WebSocket events; exceeding either limit fails that stream and invalidates its socket rather than dropping or reordering events.
 - **useResponsesApiWebSearch:** When `true`, the server keeps Responses API tools with `type: "web_search"` and forwards them upstream. Set to `false` to strip those tools from `/responses` payloads. Defaults to `true`.
 - **alphaSearchCodexPriority:** Defaults to `true`. Top-level alpha-search requests prefer the Codex alpha-search endpoint because it does not consume provider quota. If Codex is unavailable, or this setting is `false`, requests with a `provider/model` alias other than `codex/model` use that provider's `/v1/responses` endpoint, and requests without a provider prefix use GitHub Copilot Responses web search. The adapter recognizes every current Codex search command; unsupported `image_query` and `screenshot` operations return successful no-retry tool output.
 - **alphaSearchModel:** Native Responses search model used when a Messages-backed Responses Lite model cannot run Responses web search directly. Defaults to `gpt-5-mini`; it may be a regular Copilot model or an `openai-responses` `provider/model` alias. Set it to an empty string to disable this redirect, in which case alpha-search requests for those models return an invalid-request error.
@@ -748,7 +758,7 @@ Edit this file to customize prompts or swap in your own fast model. Restart the 
 
 ## API Authentication
 
-- **Protected non-admin routes:** All routes except `/`, `/usage-viewer`, and `/usage-viewer/` require authentication when `auth.apiKeys` is configured and non-empty.
+- **Protected non-admin routes:** All routes except `/`, `/usage-viewer`, and `/usage-viewer/` require authentication when `auth.apiKeys` is configured and non-empty. Non-loopback listeners require a non-empty `auth.apiKeys` configuration at startup and continue failing closed if the keys are later cleared.
 - **Admin routes:** All `/admin/*` routes require `auth.adminApiKey`. If it is missing, the server generates one at startup and persists it to `config.json` before serving requests.
 - **Allowed auth headers:**
   - `x-api-key: <your_key>`
@@ -780,7 +790,7 @@ These endpoints mimic the OpenAI API structure.
 
 | Endpoint                    | Method | Description                                                      |
 | --------------------------- | ------ | ---------------------------------------------------------------- |
-| `POST /v1/responses`        | `POST` | OpenAI Most advanced interface for generating model responses. Supports `provider/model` aliases for `openai-responses` providers. |
+| `POST /v1/responses`        | `POST` | OpenAI Most advanced interface for generating model responses. Supports `Content-Encoding: zstd` request bodies and `provider/model` aliases for `openai-responses` providers. Zstd request decompression is limited to Responses routes, including provider-scoped aliases. |
 | `POST /v1/chat/completions` | `POST` | Creates a model response for the given chat conversation. Supports `provider/model` aliases for `openai-compatible` providers and can be used without Copilot when the target provider is configured. |
 | `GET /v1/models`            | `GET`  | Lists Copilot models plus enabled provider models using `provider/model-id` IDs. Requests from Codex clients (`User-Agent` beginning with `codex`) are forwarded to the Codex Models upstream. |
 | `POST /v1/embeddings`       | `POST` | Creates an embedding vector representing the input text.         |
@@ -793,7 +803,7 @@ These endpoints implement Codex backend APIs. Top-level image requests require a
 | -------------------------------------------------------------- | ------ | --------------------------------------------------------------- |
 | `POST /v1/alpha/search`                | `POST` | Routes Codex alpha-search requests to the Codex backend, or handles supported commands locally and through Responses web search. |
 | `POST /v1/images/generations` | `POST` | Forwards a JSON image generation request to the Codex Images upstream. When the request omits `Content-Type`, the gateway defaults it to `application/json`. Configured model mappings apply to the request `model`; a mapping that resolves to a `provider/model` alias forwards the request to that provider's images endpoint when the provider is configured. |
-| `POST /v1/images/edits` | `POST` | Forwards an image edit request to the Codex Images upstream. Send this request as `multipart/form-data` and let the HTTP client generate the `boundary`; the gateway preserves the incoming content type and buffers the upload body before forwarding it. Model mappings and `provider/model` alias routing apply to this endpoint as well. |
+| `POST /v1/images/edits` | `POST` | Forwards an image edit request to the Codex Images upstream. Send this request as `multipart/form-data` and let the HTTP client generate the `boundary`. The gateway streams uploaded files to temporary disk files while receiving them and forwards them from disk, so large uploads are not held in memory. Multipart requests are limited to 128 MiB total, 64 MiB per file, and 16 files; requests over a limit return `413`. Model mappings and `provider/model` alias routing apply to this endpoint as well. |
 
 For requests routed to the Codex backend, the gateway replaces client authorization and account headers with the active Codex login and preserves compatible request metadata. Responses-backed alpha search instead follows the selected Copilot or provider route.
 
@@ -860,13 +870,18 @@ curl http://localhost:4141/dashscope/v1/messages \
   -d '{"model":"qwen3.6-plus","max_tokens":1024,"messages":[{"role":"user","content":"hello"}]}'
 ```
 
-## Usage Tips
+<a id="troubleshooting"></a>
 
-### CLAUDE.md or AGENTS.md Recommended Content
+## Troubleshooting
 
-Same reminders as `CLAUDE_PLUGIN_ENABLE_QUESTION_RULES=1` in the `agent-inject` plugin, for when you don't use that plugin. Add to `CLAUDE.md` (Claude Code) or `AGENTS.md` (opencode/codex):
+### GitHub Copilot fails with `Encrypted function output content could not be decrypted or decoded`
 
+When the GitHub Copilot provider returns or logs `Encrypted function output content could not be decrypted or decoded`, the upstream Copilot Responses WebSocket channel returned tool-call output that cannot currently be decrypted. Set `useResponsesApiWebSocket` to `false` in `config.json` so Copilot Responses traffic goes over HTTP `/responses` instead:
+
+```json
+{
+  "useResponsesApiWebSocket": false
+}
 ```
-- Prohibited from directly asking questions to users, MUST use question tool.
-- Once you can confirm that the task is complete, MUST use question tool to make user confirm. The user may respond with feedback if they are not satisfied with the result, which you can use to make improvements and try again, after try again, MUST use question tool to make user confirm again.
-```
+
+Restart the server after changing the config. See [Configuration (config.json)](#configuration-configjson) for the full option reference.

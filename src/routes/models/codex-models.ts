@@ -1,7 +1,7 @@
 import type { Context } from "hono"
 
 import type { ResolvedProviderConfig } from "~/lib/config"
-import { createHandlerLogger, debugJson } from "~/lib/logger"
+import { createHandlerLogger } from "~/lib/logger"
 import { resolveProviderConfig } from "~/lib/provider-resolver"
 import type {
   CodexModel,
@@ -68,18 +68,6 @@ export function shouldInjectMessagesToolCallTips(
   return isCodexUserAgent(userAgent) && !isDeepSeekModelId(targetModel)
 }
 
-async function logCodexModelsResponse(response: Response): Promise<void> {
-  try {
-    const models = (await response.clone().json()) as CodexModelsResponse
-    debugJson(logger, "models.codex.response", {
-      statusCode: response.status,
-      models,
-    })
-  } catch (error) {
-    logger.warn("models.codex.response_log_error", { error })
-  }
-}
-
 /**
  * Proxies a models request to the fixed Codex upstream models endpoint.
  * Returns a 404 JSON response when the codex provider is unavailable.
@@ -108,7 +96,6 @@ export async function handleCodexModelsProxy(
     c.req.url,
     c.req.raw.headers,
   )
-  await logCodexModelsResponse(upstreamResponse)
   return createProviderProxyResponse(upstreamResponse)
 }
 
@@ -183,12 +170,6 @@ export async function handleMergedCodexModels(
     ...(upstreamCatalog ?? {}),
     models,
   }
-  debugJson(logger, "models.codex.merged_response", {
-    upstreamCount: upstreamModels.length,
-    codexProviderAliasCount: codexProviderAliases.length,
-    syntheticCount: syntheticModels.length,
-    models: response,
-  })
   return c.json(response)
 }
 
