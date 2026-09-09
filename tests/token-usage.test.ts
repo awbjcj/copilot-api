@@ -641,6 +641,31 @@ describe("token usage storage", () => {
     expect(events.total).toBe(4)
   })
 
+  test("daily token and cost totals use the same midnight boundaries as the range", async () => {
+    const midnight = localDate(2026, 4, 1, 0)
+    for (const offset of [-1, 0]) {
+      setSystemTime(new Date(midnight.getTime() + offset))
+      recordTokenUsageEvent({
+        cost: 0.25,
+        endpoint: "provider_messages",
+        input_tokens: 7,
+        model: "midnight-model",
+        providerName: "openrouter",
+        source: "provider",
+      })
+    }
+    setSystemTime(localDate(2026, 4, 1, 12))
+    const response = await createTokenUsageApp().request(
+      "/token-usage/daily?period=this_month",
+    )
+    const daily = (await response.json()) as TokenUsageDailySummary
+    expect(daily.days).toHaveLength(1)
+    expect(daily.days[0]?.start_ms).toBe(midnight.getTime())
+    expect(daily.days[0]?.totals.input_tokens).toBe(7)
+    expect(daily.days[0]?.totals.costs).toEqual(daily.totals.costs)
+    expect(daily.days[0]?.totals.costs[0]?.total_cost_nanos).toBe(250_000_000)
+  })
+
   test("returns an empty lifetime range when there are no events", async () => {
     setSystemTime(localDate(2026, 4, 15))
     const app = createTokenUsageApp()

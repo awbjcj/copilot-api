@@ -1,3 +1,4 @@
+import { withoutGatewayQueryKey } from "~/lib/request-url"
 import {
   buildCodexRequestHeaders,
   CODEX_API_BASE_URL,
@@ -7,7 +8,7 @@ const CODEX_ALPHA_SEARCH_URL = `${CODEX_API_BASE_URL}/codex/alpha/search`
 
 export function resolveCodexAlphaSearchUrl(requestUrl: string): string {
   const upstreamUrl = new URL(CODEX_ALPHA_SEARCH_URL)
-  upstreamUrl.search = new URL(requestUrl, "http://localhost").search
+  upstreamUrl.search = withoutGatewayQueryKey(requestUrl).search
   return upstreamUrl.toString()
 }
 

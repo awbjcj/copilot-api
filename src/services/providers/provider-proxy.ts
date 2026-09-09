@@ -1,3 +1,4 @@
+import { withoutGatewayQueryKey } from "~/lib/request-url"
 import consola from "consola"
 import {
   fetch as undiciFetch,
@@ -235,7 +236,7 @@ function resolveProviderRequestUrl(
   path: string,
 ): string {
   const upstreamUrl = new URL(`${providerConfig.baseUrl}${path}`)
-  upstreamUrl.search = new URL(requestUrl, "http://localhost").search
+  upstreamUrl.search = withoutGatewayQueryKey(requestUrl).search
   return upstreamUrl.toString()
 }
 

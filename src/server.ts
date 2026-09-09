@@ -1,6 +1,5 @@
 import { Hono, type Context } from "hono"
 import { cors } from "hono/cors"
-import { logger } from "hono/logger"
 import { readFileSync } from "node:fs"
 
 import {
@@ -8,6 +7,7 @@ import {
   getConfiguredAdminApiKeys,
 } from "./lib/request-auth"
 import { traceIdMiddleware } from "./lib/trace"
+import { createRequestLogger } from "./lib/request-logger"
 import { alphaSearchRoutes } from "./routes/alpha-search/route"
 import { completionRoutes } from "./routes/chat-completions/route"
 import { configRoutes } from "./routes/admin/config/route"
@@ -50,7 +50,7 @@ export function createServer(options: CreateServerOptions = {}): Hono {
   const networkExposed = options.networkExposed ?? false
 
   server.use(traceIdMiddleware)
-  server.use(logger())
+  server.use(createRequestLogger())
   server.use(
     networkExposed ? cors({ origin: resolveSameOriginCorsOrigin }) : cors(),
   )

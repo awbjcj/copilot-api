@@ -1,3 +1,4 @@
+import { withoutGatewayQueryKey } from "~/lib/request-url"
 import {
   fetch as undiciFetch,
   type RequestInit as UndiciRequestInit,
@@ -24,7 +25,7 @@ export function resolveCodexImagesUrl(
   operation: CodexImagesOperation,
 ): string {
   const upstreamUrl = new URL(`${CODEX_API_BASE_URL}/codex/images/${operation}`)
-  upstreamUrl.search = new URL(requestUrl, "http://localhost").search
+  upstreamUrl.search = withoutGatewayQueryKey(requestUrl).search
   return upstreamUrl.toString()
 }
 

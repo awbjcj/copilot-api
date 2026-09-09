@@ -1,3 +1,4 @@
+import { withoutGatewayQueryKey } from "~/lib/request-url"
 import type { Model, ModelsResponse } from "~/lib/types/models"
 import {
   buildCodexRequestHeaders,
@@ -77,7 +78,7 @@ const CODEX_MODELS_TIMEOUT_MS = 15_000
 
 export function resolveCodexModelsUrl(requestUrl: string): string {
   const upstreamUrl = new URL(CODEX_MODELS_URL)
-  upstreamUrl.search = new URL(requestUrl, "http://localhost").search
+  upstreamUrl.search = withoutGatewayQueryKey(requestUrl).search
   return upstreamUrl.toString()
 }
 

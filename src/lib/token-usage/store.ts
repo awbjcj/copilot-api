@@ -841,13 +841,22 @@ function getDailyModelSummaries(
   db: SqliteDatabase,
   range: { endMs: number; startMs: number },
 ): Map<string, Array<TokenUsageModelSummary>> {
-  const usageDate =
-    "strftime('%Y-%m-%d', created_at_ms / 1000.0, 'unixepoch', 'localtime')"
+  // Use the same JavaScript calendar boundaries as the returned buckets.
+  // SQLite's localtime can use the OS zone instead of the process TZ on Windows.
+  const intervals = JSON.stringify(createDailyIntervals(range))
+  const dailyIntervals = `WITH days AS (
+    SELECT
+      json_extract(value, '$.date') AS usage_date,
+      json_extract(value, '$.startMs') AS start_ms,
+      json_extract(value, '$.endMs') AS end_ms
+    FROM json_each(?)
+  )`
   const rows = db
     .prepare(
       `
+    ${dailyIntervals}
     SELECT
-      ${usageDate} AS usage_date,
+      days.usage_date,
       model,
       COUNT(*) AS request_count,
       COALESCE(SUM(input_tokens), 0) AS input_tokens,
@@ -857,21 +866,26 @@ function getDailyModelSummaries(
       SUM(total_nano_aiu) AS total_nano_aiu,
       COALESCE(SUM(total_tokens), 0) AS total_tokens
     FROM token_usage_events
+    JOIN days ON created_at_ms >= days.start_ms AND created_at_ms < days.end_ms
     WHERE created_at_ms >= ? AND created_at_ms < ?
     GROUP BY usage_date, model
     ORDER BY usage_date ASC, total_tokens DESC, model ASC
   `,
     )
-    .all(range.startMs, range.endMs) as Array<Record<string, unknown>>
+    .all(intervals, range.startMs, range.endMs) as Array<
+    Record<string, unknown>
+  >
   const costRows = db
     .prepare(
       `
+    ${dailyIntervals}
     SELECT
-      ${usageDate} AS usage_date,
+      days.usage_date,
       model,
       cost_currency,
       COALESCE(SUM(total_cost_nanos), 0) AS total_cost_nanos
     FROM token_usage_events
+    JOIN days ON created_at_ms >= days.start_ms AND created_at_ms < days.end_ms
     WHERE created_at_ms >= ?
       AND created_at_ms < ?
       AND cost_currency IS NOT NULL
@@ -880,7 +894,9 @@ function getDailyModelSummaries(
     ORDER BY usage_date ASC, model ASC, cost_currency ASC
   `,
     )
-    .all(range.startMs, range.endMs) as Array<Record<string, unknown>>
+    .all(intervals, range.startMs, range.endMs) as Array<
+    Record<string, unknown>
+  >
   const costsByDateAndModel = new Map<string, Array<TokenUsageCost>>()
   for (const row of costRows) {
     const date = stringFromRow(row, "usage_date")
