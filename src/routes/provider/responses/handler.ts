@@ -26,7 +26,10 @@ import {
   filterReasoningForTransport,
 } from "~/routes/responses/utils"
 import { handleResponsesViaMessages } from "~/routes/responses/messages-handler"
-import { normalizeProviderResponsesReasoningEffort } from "~/routes/provider/utils"
+import {
+  forwardProviderResponseHeaders,
+  normalizeProviderResponsesReasoningEffort,
+} from "~/routes/provider/utils"
 
 import type {
   ResponsesPayload,
@@ -146,7 +149,11 @@ export async function handleProviderResponsesForProvider(
       payload,
       c.req.raw.headers,
       providerConfig.baseUrl,
-      { clientSignal: c.req.raw.signal },
+      {
+        clientSignal: c.req.raw.signal,
+        onResponseHeaders: (headers) =>
+          forwardProviderResponseHeaders(c, headers),
+      },
     )
     const recordUsage = createProviderResponsesUsageRecorder(
       payload,

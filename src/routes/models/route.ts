@@ -414,8 +414,13 @@ function createProviderCodexCandidate(
   const configuredModalities = normalizeInputModalities(
     modelConfig?.inputModalities,
   )
+  // OpenRouter nests the modalities under `architecture`, e.g.
+  // ["file", "image", "text"] for vision models:
+  // https://openrouter.ai/docs/api/api-reference/models/list-all-models-and-their-properties
   const remoteModalities = normalizeInputModalities(
-    remoteModel?.input_modalities ?? remoteModel?.modalities,
+    remoteModel?.input_modalities
+      ?? remoteModel?.modalities
+      ?? getRecordField(remoteModel, "architecture")?.input_modalities,
   )
   const builtinModalities = normalizeInputModalities(
     builtinModelConfig?.inputModalities,
@@ -548,6 +553,14 @@ function positiveNumber(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ?
       Math.floor(value)
     : fallback
+}
+
+function getRecordField(
+  model: Record<string, unknown> | undefined,
+  field: string,
+): Record<string, unknown> | undefined {
+  const value = model?.[field]
+  return isRecord(value) ? value : undefined
 }
 
 function getFirstPositiveNumber(

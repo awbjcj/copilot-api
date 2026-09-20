@@ -203,6 +203,12 @@ export function resolveEffectiveProviderType(
     }
   }
 
+  if (providerConfig.name === "openrouter") {
+    if (model.includes("gpt-")) {
+      return "openai-responses"
+    }
+  }
+
   return providerConfig.type
 }
 

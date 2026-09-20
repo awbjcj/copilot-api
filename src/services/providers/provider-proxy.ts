@@ -110,17 +110,23 @@ export function createProviderProxyResponse(
   upstreamResponse: Response,
   body?: ReadableStream<Uint8Array> | null,
 ): Response {
-  const headers = new Headers(upstreamResponse.headers)
+  return new Response(body ?? upstreamResponse.body, {
+    headers: createProviderProxyResponseHeaders(upstreamResponse.headers),
+    status: upstreamResponse.status,
+    statusText: upstreamResponse.statusText,
+  })
+}
+
+export function createProviderProxyResponseHeaders(
+  upstreamHeaders: Headers,
+): Headers {
+  const headers = new Headers(upstreamHeaders)
 
   for (const headerName of STRIPPED_RESPONSE_HEADERS) {
     headers.delete(headerName)
   }
 
-  return new Response(body ?? upstreamResponse.body, {
-    headers,
-    status: upstreamResponse.status,
-    statusText: upstreamResponse.statusText,
-  })
+  return headers
 }
 
 export async function forwardProviderMessages(

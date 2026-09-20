@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, mock, test } from "bun:test"
+import { Hono } from "hono"
 
 import type { ResponsesResult } from "~/lib/types/responses"
 
@@ -20,6 +21,7 @@ class MockWebSocket {
   static readonly CLOSED = 3
   static autoComplete = true
   static instances: Array<MockWebSocket> = []
+  static responseMetadataHeaders: Record<string, unknown> | null = null
 
   readonly sent: Array<string> = []
   readonly init: { dispatcher?: unknown; headers?: Record<string, string> }
@@ -78,6 +80,14 @@ class MockWebSocket {
     }
 
     const parsed = JSON.parse(latestSent) as { model: string }
+    if (MockWebSocket.responseMetadataHeaders) {
+      this.emit("message", {
+        data: JSON.stringify({
+          headers: MockWebSocket.responseMetadataHeaders,
+          type: "codex.response.metadata",
+        }),
+      })
+    }
     this.emit("message", {
       data: JSON.stringify({
         response: createResponsesResult(
@@ -134,6 +144,12 @@ const { state } = await import("~/lib/state")
 const { forwardCodexResponses } = await import(
   "~/services/codex/create-responses"
 )
+const { providerResponsesRoutes } = await import(
+  "~/routes/provider/responses/route"
+)
+const { providerResponsesHandlerDependencies } = await import(
+  "~/routes/provider/responses/handler"
+)
 
 const originalState = {
   codexAccessToken: state.codexAccessToken,
@@ -179,6 +195,7 @@ const mockFetchJsonResponse = (body: unknown): void => {
 beforeEach(() => {
   MockWebSocket.autoComplete = true
   MockWebSocket.instances = []
+  MockWebSocket.responseMetadataHeaders = null
   state.codexAccessToken = "codex-token"
   state.codexAccountId = "codex-account"
   fetchMock.mockClear()
@@ -423,6 +440,67 @@ test("forwardCodexResponses preserves response.completed while using websocket",
   expect(chunks).toHaveLength(1)
   expect(chunks[0]?.event).toBe("response.completed")
   expect(chunks[0]?.data).toContain('"type":"response.completed"')
+})
+
+test("provider Responses forwards Codex websocket metadata as HTTP headers", async () => {
+  const originalResolveProviderConfig =
+    providerResponsesHandlerDependencies.resolveProviderConfig
+  MockWebSocket.responseMetadataHeaders = {
+    "content-type": "application/unsafe",
+    "proxy-authenticate": "Basic",
+    "x-codex-safety-buffering-enabled": "true",
+    "x-codex-safety-buffering-faster-model": "gpt-5.6-luna",
+    "x-codex-turn-state": "turn-state-websocket-123",
+    "x-models-etag": 'W/"cc84b142c478d2fdd3d1257f1a8eefc2"',
+    "x-custom-metadata": "forward-me",
+  }
+  providerResponsesHandlerDependencies.resolveProviderConfig = () =>
+    Promise.resolve({
+      apiKey: "",
+      authType: "oauth2",
+      baseUrl: "https://chatgpt.example/backend-api",
+      models: { "gpt-5.4": {} },
+      name: "codex",
+      type: "openai-responses",
+    })
+
+  try {
+    const app = new Hono()
+    app.route("/:provider/v1/responses", providerResponsesRoutes)
+    const response = await app.request("/codex/v1/responses", {
+      body: JSON.stringify({
+        input: "hello",
+        model: "gpt-5.4",
+        stream: true,
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get("x-models-etag")).toBe(
+      'W/"cc84b142c478d2fdd3d1257f1a8eefc2"',
+    )
+    expect(response.headers.get("x-codex-turn-state")).toBe(
+      "turn-state-websocket-123",
+    )
+    expect(response.headers.get("x-codex-safety-buffering-enabled")).toBe(
+      "true",
+    )
+    expect(response.headers.get("x-codex-safety-buffering-faster-model")).toBe(
+      "gpt-5.6-luna",
+    )
+    expect(response.headers.get("x-custom-metadata")).toBe("forward-me")
+    expect(response.headers.get("proxy-authenticate")).toBeNull()
+    expect(response.headers.get("content-type")).toContain("text/event-stream")
+
+    const body = await response.text()
+    expect(body).toContain("response.completed")
+    expect(body).not.toContain("codex.response.metadata")
+  } finally {
+    providerResponsesHandlerDependencies.resolveProviderConfig =
+      originalResolveProviderConfig
+  }
 })
 
 test("forwardCodexResponses emits an error event when the websocket closes without a terminal response", async () => {

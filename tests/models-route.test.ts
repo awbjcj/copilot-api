@@ -143,6 +143,32 @@ const fetchMock = mock((url: string | URL | Request, _init?: RequestInit) => {
     )
   }
 
+  if (requestUrl === "https://openrouter.example/v1/models") {
+    return Promise.resolve(
+      Response.json({
+        data: [
+          {
+            architecture: {
+              input_modalities: ["file", "image", "text"],
+              modality: "text+image+file->text",
+              output_modalities: ["text"],
+            },
+            canonical_slug: "openai/gpt-5.1-codex-20251113",
+            context_length: 400_000,
+            description: "Codex-optimized GPT model.",
+            id: "openai/gpt-5.1-codex",
+            name: "OpenAI: GPT-5.1-Codex",
+            supported_parameters: ["include_reasoning", "reasoning", "tools"],
+            top_provider: {
+              context_length: 400_000,
+              max_completion_tokens: 128_000,
+            },
+          },
+        ],
+      }),
+    )
+  }
+
   if (requestUrl === "https://opencode.example/v1/models") {
     return Promise.resolve(
       Response.json({
@@ -359,9 +385,7 @@ describe("model routes", () => {
       context_window: 1_000_000,
       input_modalities: ["text", "image"],
       max_output_tokens: 384_000,
-      shell_type: "unified_exec",
-      use_responses_lite: true,
-      tool_mode: "code_mode_only",
+      shell_type: "shell_command",
     })
     expect(body.models.find((model) => model.slug === "kimi/k3")).toMatchObject(
       {
@@ -439,6 +463,36 @@ describe("model routes", () => {
       context_window: 128_000,
       input_modalities: ["text", "image"],
       max_output_tokens: 8_000,
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  test("maps the OpenRouter image modality into Codex candidates", async () => {
+    enabledProviders = ["openrouter"]
+    providerConfigs = {
+      openrouter: {
+        apiKey: "openrouter-key",
+        authType: "authorization",
+        baseUrl: "https://openrouter.example",
+        name: "openrouter",
+        type: "anthropic",
+      },
+    }
+
+    const response = await createApp().request("/v1/models?client=codex", {
+      headers: { "user-agent": "codex-cli/1.0.0" },
+    })
+
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as {
+      models: Array<Record<string, unknown> & { slug: string }>
+    }
+    expect(
+      body.models.find(
+        (model) => model.slug === "openrouter/openai/gpt-5.1-codex",
+      ),
+    ).toMatchObject({
+      input_modalities: ["image", "text"],
     })
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })

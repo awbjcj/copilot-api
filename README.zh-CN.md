@@ -324,7 +324,9 @@ args = [
 
 未按上述方式配置时，Codex 未登录 GPT 账号拉不到 `/v1/models`，无法选择自定义模型。
 
-Codex 客户端（`User-Agent` 以 `codex` 开头）请求顶层 `GET /v1/models` 时，网关会把原生 Codex 模型与可通过 Messages 适配的模型合并返回。后者会声明 `use_responses_lite: true` 和 `tool_mode: "code_mode_only"`。调用 `/v1/responses` 后，Anthropic provider 走 **Responses → Messages**，OpenAI 兼容 provider 以及只支持 Chat 的 Copilot 模型则复用现有 Messages 路由继续走 **Responses → Messages → Chat Completions**，最终统一翻译回 Responses（包括流式事件）。
+Codex 客户端（`User-Agent` 以 `codex` 开头）请求顶层 `GET /v1/models` 时，网关会把原生 Codex 模型与可通过 Messages 适配的模型合并返回。除 DeepSeek 模型外，后者会声明 `use_responses_lite: true`；DeepSeek 模型使用 `use_responses_lite: false` 和 `tool_mode: null`。调用 `/v1/responses` 后，Anthropic provider 走 **Responses → Messages**，OpenAI 兼容 provider 以及只支持 Chat 的 Copilot 模型则复用现有 Messages 路由继续走 **Responses → Messages → Chat Completions**，最终统一翻译回 Responses（包括流式事件）。
+
+> **注意：** DeepSeek 模型不使用 Responses Lite（`use_responses_lite: false`、`tool_mode: null`），因此向 Codex 暴露的工具集合与其他模型（`tool_mode: "code_mode_only"`）不一致。在会话中途切换 DeepSeek 模型与 Responses Lite 模型并不兼容——一套工具集合下产生的工具调用和会话历史无法直接沿用到另一套。切换模型时请新建 Codex 会话。
 
 合并后的模型列表会直接展示在 Codex 的模型选择界面中，包含各 provider 暴露的模型：
 
@@ -504,7 +506,7 @@ Token 和代理变量也可以在同一文件中覆盖。代理地址必须能�
 
 ## Electron 桌面应用
 
-如果你更喜欢图形界面，仓库里还提供了位于 `desktop/` 的 Electron 桌面应用。它支持 GitHub Copilot 登录、OpenAI Codex OAuth 与最多 3 个 Codex 账号的手动切换，以及 Kimi、DeepSeek、DashScope、OpenRouter 或自定义 provider 的 API Key 配置。切换 Codex 账号后，界面会提示手动重启服务。授权或配置 provider 后，可以一键启动或停止本地代理，并在界面里直接查看本地端点、鉴权 Header、可用模型、额度和日志。
+如果你更喜欢图形界面，仓库里还提供了位于 `desktop/` 的 Electron 桌面应用。它支持 GitHub Copilot 登录、OpenAI Codex OAuth 与最多 3 个 Codex 账号的手动切换、移除未在使用的账号，以及 Kimi、DeepSeek、DashScope、OpenRouter 或自定义 provider 的 API Key 配置。切换 Codex 账号后，界面会提示手动重启服务。授权或配置 provider 后，可以一键启动或停止本地代理，并在界面里直接查看本地端点、鉴权 Header、可用模型、额度和日志。
 
 设置页还可以配置 `OAuth App`、`API Home`、`SQLite DB Path`、`Enterprise URL`、详细日志以及最小化到托盘。Windows x64（`.exe`）、macOS Apple Silicon（`.dmg`）和 Linux x64（`.AppImage`）安装包发布在 GitHub Releases：
 
@@ -716,7 +718,7 @@ Copilot API 现在使用子命令结构，主要命令包括：
 
 只有在需要启用 GitHub Copilot provider 时，才需要执行 `copilot-api auth login --provider copilot`。使用 `codex` 或第三方 provider-only 模式不要求配置 Copilot。
 
-Codex provider 最多保存 3 个账号。使用 `copilot-api auth login --provider codex --alias work` 新增或更新账号，新登录账号会成为当前账号；使用 `copilot-api auth codex --list` 查看账号，使用 `copilot-api auth codex --use <alias-or-accountId>` 手动切换。切换后需要重启正在运行的服务。旧版单账号 `codex_credentials.json` 会自动兼容，并在下一次写入凭据时升级为多账号格式。
+Codex provider 最多保存 3 个账号。使用 `copilot-api auth login --provider codex --alias work` 新增或更新账号，新登录账号会成为当前账号；使用 `copilot-api auth codex --list` 查看账号，使用 `copilot-api auth codex --use <alias-or-accountId>` 手动切换，使用 `copilot-api auth codex --remove <alias-or-accountId>` 移除未在使用的账号。别名不区分大小写，且不能与其他账号的别名或账号 ID 重复；正在使用的账号无法移除。切换或移除账号后需要重启正在运行的服务，使其停止使用旧账号；凭据刷新不会把已移除的账号写回。旧版单账号 `codex_credentials.json` 会自动兼容，并在下一次写入凭据时升级为多账号格式。
 
 使用 `copilot-api auth login --provider deepseek`、`--provider dashscope`、`--provider openrouter`、`--provider opencode-go` 或 `--provider kimi` 可以通过 CLI 快速新增或更新这些常用第三方 provider。DeepSeek 会提示输入掩码显示的 `apiKey`、provider `type`（默认 `anthropic`），以及默认 `https://api.deepseek.com/anthropic` 的 `baseUrl`。DashScope 会提示输入掩码显示的 `apiKey`、provider `type`（默认 `openai-compatible`）和预填默认值的 `baseUrl`。OpenRouter 只提示输入掩码显示的 `apiKey` 和预填默认值的 `baseUrl`，并固定写入 `type: "anthropic"`。OpenCode Go 只提示输入掩码显示的 `apiKey` 和预填默认值的 `baseUrl`，并固定写入 `type: "openai-compatible"`（baseUrl `https://opencode.ai/zen/go`）。Kimi 会提示输入掩码显示的 `apiKey`、provider `type`（默认 `openai-compatible`）和默认值为 `https://api.kimi.com/coding` 的 `baseUrl`（同一个 base URL 同时支持 Anthropic 和 OpenAI-compatible 两种端点）。此外，OpenCode Go 内置将 `qwen*` 和 `minimax*` 模型路由到 Anthropic Messages，将 `gpt*`/`grok*`/`muse-spark*` 模型路由到 OpenAI Responses，其他模型仍默认使用 OpenAI 兼容协议。配置并启用 provider 后，`copilot-api start` 可在没有 GitHub token 的情况下启动。
 
@@ -779,7 +781,7 @@ Codex provider 最多保存 3 个账号。使用 `copilot-api auth login --provi
 - **auth.adminApiKey：** 仅用于 `/admin/*` 路由的单个 admin key。若未配置，服务会在启动时自动生成一个随机 key，并回写到 `config.json`。它同样使用 `x-api-key` 或 `Authorization: Bearer` 这两种头，但普通 `auth.apiKeys` 不能访问 `/admin/*`。
 - **modelMappings：** 用于顶层 `POST /v1/messages`、`POST /v1/messages/count_tokens`、`POST /v1/responses` 和 `POST /v1/chat/completions` 请求的精确 `sourceModel -> targetModel` 重写映射，这几类接口共用同一份规则。省略该字段或保留为 `{}` 时，不会做模型重写。`source` 和 `target` 都必须是非空字符串。`target` 可以是普通模型 ID，也可以是 `provider/model` 形式的别名，例如 `dashscope/qwen3.6-plus`；重写发生在 provider alias 解析之前。这些映射不再按接口区分。`GET/POST /admin/config/model-mappings` 管理接口读写的也只有这个字段。
 - **extraPrompts：** `model -> prompt` 的映射。把 Anthropic 风格请求翻译为 Responses API 时，会将其附加到第一条 system prompt 后面。你可以借此为不同模型注入护栏或指引。缺失的默认项会自动补齐，但不会覆盖你自定义的 prompt。对于 GPT-5.3+ 模型（如 `gpt-5.3-codex`、`gpt-5.4`、`gpt-5.5`），未显式配置时会自动使用内置的 commentary prompt。内置 prompt 会启用带阶段感知的 commentary，让模型在工具调用或更深层推理前先发出简短的用户可见进度说明。
-- **providers：** 全局上游 provider 映射。每个 provider key（例如 `dashscope`）都会变成一个路由前缀（`/dashscope/v1/messages`）。支持 `type: "anthropic"`、`type: "openai-compatible"` 和 `type: "openai-responses"`。顶层客户端也可以在 `/v1/messages`、`/v1/messages/count_tokens`、`/v1/responses` 和 `/v1/chat/completions` 中使用 `model: "dashscope/model-id"`；AI gateway 会在转发上游前移除 `dashscope/` 前缀。`anthropic` 和 `openai-compatible` provider 的 `/v1/responses` 会通过 Responses Lite → Messages 适配；其中 `openai-compatible` provider 再复用 Messages → Chat 翻译。Codex 客户端（`User-Agent` 以 `codex` 开头）在 `openai-responses` provider 上请求非 `gpt-*` 模型时同样走该适配路径。`GET /v1/models` 会聚合已启用 provider 的模型，并以 `provider/model-id` 形式返回；Codex UA 的顶层模型列表还会把这些可适配模型合并为 `use_responses_lite` 模型。单个 provider 的原始模型列表仍可使用 `GET /dashscope/v1/models`。
+- **providers：** 全局上游 provider 映射。每个 provider key（例如 `dashscope`）都会变成一个路由前缀（`/dashscope/v1/messages`）。支持 `type: "anthropic"`、`type: "openai-compatible"` 和 `type: "openai-responses"`。顶层客户端也可以在 `/v1/messages`、`/v1/messages/count_tokens`、`/v1/responses` 和 `/v1/chat/completions` 中使用 `model: "dashscope/model-id"`；AI gateway 会在转发上游前移除 `dashscope/` 前缀。`anthropic` 和 `openai-compatible` provider 的 `/v1/responses` 会通过 Responses Lite → Messages 适配；其中 `openai-compatible` provider 再复用 Messages → Chat 翻译。Codex 客户端（`User-Agent` 以 `codex` 开头）在 `openai-responses` provider 上请求非 `gpt-*` 模型时同样走该适配路径。`GET /v1/models` 会聚合已启用 provider 的模型，并以 `provider/model-id` 形式返回；Codex UA 的顶层模型列表还会把这些可适配模型合并为 `use_responses_lite` 模型（DeepSeek 模型除外，它们使用 `use_responses_lite: false` 和 `tool_mode: null`）。单个 provider 的原始模型列表仍可使用 `GET /dashscope/v1/models`。
   - `enabled`：可选，若省略则默认为 `true`。
   - `baseUrl`：provider API 的基础 URL，不要带结尾的 endpoint。Anthropic provider 不要带 `/v1/messages`；OpenAI 兼容 provider 不要带 `/v1/chat/completions`；OpenAI Responses provider 不要带 `/v1/responses`。
   - `apiKey`：作为上游凭据值使用；除 `authType` 为 `azure-entra` 外，普通 provider 必须配置。

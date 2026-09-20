@@ -456,6 +456,111 @@ describe("provider Responses context management", () => {
     expect((init as RequestInit).signal).toBeInstanceOf(AbortSignal)
   })
 
+  test("forwards safe Codex HTTP response headers", async () => {
+    const originalCodexAccessToken = state.codexAccessToken
+    const originalCodexAccountId = state.codexAccountId
+    providerConfig = {
+      apiKey: "",
+      authType: "oauth2",
+      baseUrl: "https://chatgpt.example/backend-api",
+      models: { "gpt-test": {} },
+      name: "codex",
+      type: "openai-responses",
+    }
+    state.codexAccessToken = "synthetic-codex-token"
+    state.codexAccountId = "synthetic-account"
+    fetchMock.mockImplementation((_url, init) => {
+      const body = parseJsonRequestBody(init?.body) as { model: string }
+      const headers = new Headers({
+        connection: "keep-alive",
+        "content-encoding": "gzip",
+        "content-length": "9999",
+        "openai-processing-ms": "42",
+        "transfer-encoding": "chunked",
+        "x-codex-turn-state": "turn-state-http-123",
+        "x-models-etag": 'W/"models-http-123"',
+        "x-request-id": "request-http-123",
+      })
+      headers.append("set-cookie", "session=a; Path=/")
+      headers.append("set-cookie", "affinity=b; Path=/")
+      return Promise.resolve(
+        new Response(JSON.stringify(createResponsesResult(body.model)), {
+          headers,
+        }),
+      )
+    })
+
+    try {
+      const response = await createApp().request("/codex/v1/responses", {
+        body: JSON.stringify({ input: "hello", model: "gpt-test" }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      })
+
+      expect(response.status).toBe(200)
+      expect(response.headers.get("x-codex-turn-state")).toBe(
+        "turn-state-http-123",
+      )
+      expect(response.headers.get("x-models-etag")).toBe('W/"models-http-123"')
+      expect(response.headers.get("x-request-id")).toBe("request-http-123")
+      expect(response.headers.get("openai-processing-ms")).toBe("42")
+      expect(response.headers.getSetCookie()).toEqual([
+        "session=a; Path=/",
+        "affinity=b; Path=/",
+      ])
+      expect(response.headers.has("connection")).toBe(false)
+      expect(response.headers.has("content-encoding")).toBe(false)
+      expect(response.headers.has("content-length")).toBe(false)
+      expect(response.headers.has("transfer-encoding")).toBe(false)
+    } finally {
+      state.codexAccessToken = originalCodexAccessToken
+      state.codexAccountId = originalCodexAccountId
+    }
+  })
+
+  test("does not forward Codex HTTP response headers on upstream errors", async () => {
+    const originalCodexAccessToken = state.codexAccessToken
+    const originalCodexAccountId = state.codexAccountId
+    providerConfig = {
+      apiKey: "",
+      authType: "oauth2",
+      baseUrl: "https://chatgpt.example/backend-api",
+      models: { "gpt-test": {} },
+      name: "codex",
+      type: "openai-responses",
+    }
+    state.codexAccessToken = "synthetic-codex-token"
+    state.codexAccountId = "synthetic-account"
+    fetchMock.mockImplementation(() =>
+      Promise.resolve(
+        new Response("upstream denied", {
+          headers: {
+            "set-cookie": "upstream-session=secret; Path=/",
+            "www-authenticate": "Bearer realm=upstream",
+            "x-upstream-private": "do-not-forward",
+          },
+          status: 401,
+        }),
+      ),
+    )
+
+    try {
+      const response = await createApp().request("/codex/v1/responses", {
+        body: JSON.stringify({ input: "hello", model: "gpt-test" }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      })
+
+      expect(response.status).toBe(401)
+      expect(response.headers.get("set-cookie")).toBeNull()
+      expect(response.headers.get("www-authenticate")).toBeNull()
+      expect(response.headers.get("x-upstream-private")).toBeNull()
+    } finally {
+      state.codexAccessToken = originalCodexAccessToken
+      state.codexAccountId = originalCodexAccountId
+    }
+  })
+
   test("keeps codex-prefixed provider models on the native Responses route for Codex clients", async () => {
     providerConfig = {
       apiKey: "provider-key",

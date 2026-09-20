@@ -403,6 +403,7 @@ export interface ResponseUsage {
   output_tokens_details?: {
     reasoning_tokens: number
   }
+  cost?: number
 }
 
 export type ResponseStreamEvent =
