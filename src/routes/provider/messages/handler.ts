@@ -677,6 +677,8 @@ const createOpenAICompatiblePayload = (
     extraBody: modelConfig?.extraBody,
   })
 
+  applyMiMoThinking(openAIPayload, payload)
+
   applyDashScopePreserveThinkingDefault(
     openAIPayload as unknown as Record<string, unknown>,
     providerConfig,
@@ -692,6 +694,31 @@ const createOpenAICompatiblePayload = (
   }
 
   return openAIPayload
+}
+
+const applyMiMoThinking = (
+  payload: ChatCompletionsPayload,
+  source: AnthropicMessagesPayload,
+): void => {
+  if (!/(?:^|\/)mimo(?:[-_.]|$)/i.test(payload.model)) {
+    return
+  }
+
+  const sourceThinkingType = source.thinking?.type
+  const shouldEnableThinking = Boolean(
+    payload.reasoning_effort || sourceThinkingType,
+  )
+  delete payload.reasoning_effort
+
+  if (sourceThinkingType === "disabled") {
+    payload.thinking = { type: "disabled" }
+    delete payload.thinking_budget
+    return
+  }
+
+  if (shouldEnableThinking) {
+    payload.thinking = { type: "enabled" }
+  }
 }
 
 const normalizeOpenAICompatibleReasoningContent = (

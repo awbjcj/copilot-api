@@ -37,6 +37,7 @@ import consola from "consola"
 export const CODEX_API_BASE_URL = "https://chatgpt.com/backend-api"
 
 const CODEX_RESPONSE_METADATA_EVENT = "codex.response.metadata"
+const RESPONSE_CREATED_EVENT = "response.created"
 
 type CodexResponsesWebSocketPayload = ResponsesPayload & {
   type: "response.create"
@@ -510,6 +511,7 @@ const filterCodexResponsesWebSocketMetadata = async function* (
   source: AsyncIterable<ServerSentEventChunk>,
   onResponseHeaders?: (headers: Headers) => void,
 ): AsyncGenerator<ServerSentEventChunk, void, unknown> {
+  const pendingChunks: Array<ServerSentEventChunk> = []
   let responseStarted = false
 
   for await (const chunk of source) {
@@ -521,8 +523,24 @@ const filterCodexResponsesWebSocketMetadata = async function* (
       continue
     }
 
-    responseStarted = true
+    if (!responseStarted) {
+      if (chunk.event !== RESPONSE_CREATED_EVENT) {
+        pendingChunks.push(chunk)
+        continue
+      }
+
+      responseStarted = true
+      for (const pendingChunk of pendingChunks) {
+        yield pendingChunk
+      }
+      pendingChunks.length = 0
+    }
+
     yield chunk
+  }
+
+  for (const pendingChunk of pendingChunks) {
+    yield pendingChunk
   }
 }
 

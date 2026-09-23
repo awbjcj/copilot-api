@@ -21,6 +21,7 @@ class MockWebSocket {
   static readonly CLOSED = 3
   static autoComplete = true
   static instances: Array<MockWebSocket> = []
+  static responseError: { message: string; statusCode: number } | null = null
   static responseMetadataHeaders: Record<string, unknown> | null = null
 
   readonly sent: Array<string> = []
@@ -80,14 +81,41 @@ class MockWebSocket {
     }
 
     const parsed = JSON.parse(latestSent) as { model: string }
+    if (MockWebSocket.responseError) {
+      this.emit("message", {
+        data: JSON.stringify({
+          error: { message: MockWebSocket.responseError.message },
+          status_code: MockWebSocket.responseError.statusCode,
+          type: "error",
+        }),
+      })
+      return
+    }
+
     if (MockWebSocket.responseMetadataHeaders) {
       this.emit("message", {
         data: JSON.stringify({
-          headers: MockWebSocket.responseMetadataHeaders,
+          type: "codex.rate_limits",
+          plan_type: "plus",
+        }),
+      })
+      this.emit("message", {
+        data: JSON.stringify({
+          type: "test.pre_response",
+        }),
+      })
+      this.emit("message", {
+        data: JSON.stringify({
           type: "codex.response.metadata",
+          headers: MockWebSocket.responseMetadataHeaders,
         }),
       })
     }
+    this.emit("message", {
+      data: JSON.stringify({
+        type: "response.created",
+      }),
+    })
     this.emit("message", {
       data: JSON.stringify({
         response: createResponsesResult(
@@ -195,6 +223,7 @@ const mockFetchJsonResponse = (body: unknown): void => {
 beforeEach(() => {
   MockWebSocket.autoComplete = true
   MockWebSocket.instances = []
+  MockWebSocket.responseError = null
   MockWebSocket.responseMetadataHeaders = null
   state.codexAccessToken = "codex-token"
   state.codexAccountId = "codex-account"
@@ -419,7 +448,7 @@ test("forwardCodexResponses cancels and unlocks an HTTP body after a terminal ev
   expect(upstreamBody.locked).toBe(false)
 })
 
-test("forwardCodexResponses preserves response.completed while using websocket", async () => {
+test("forwardCodexResponses preserves response lifecycle events", async () => {
   const response = await forwardCodexResponses(
     {
       input: "hello",
@@ -437,9 +466,10 @@ test("forwardCodexResponses preserves response.completed while using websocket",
   const chunks = await collectStreamChunks(response as AsyncIterable<unknown>)
 
   expect(MockWebSocket.instances).toHaveLength(1)
-  expect(chunks).toHaveLength(1)
-  expect(chunks[0]?.event).toBe("response.completed")
-  expect(chunks[0]?.data).toContain('"type":"response.completed"')
+  expect(chunks.map((chunk) => chunk.event)).toEqual([
+    "response.created",
+    "response.completed",
+  ])
 })
 
 test("provider Responses forwards Codex websocket metadata as HTTP headers", async () => {
@@ -495,8 +525,56 @@ test("provider Responses forwards Codex websocket metadata as HTTP headers", asy
     expect(response.headers.get("content-type")).toContain("text/event-stream")
 
     const body = await response.text()
+    const rateLimitsIndex = body.indexOf("codex.rate_limits")
+    const preResponseIndex = body.indexOf("test.pre_response")
+    const responseCreatedIndex = body.indexOf("response.created")
+    const responseCompletedIndex = body.indexOf("response.completed")
+    expect(rateLimitsIndex).toBeGreaterThanOrEqual(0)
+    expect(preResponseIndex).toBeGreaterThan(rateLimitsIndex)
+    expect(responseCreatedIndex).toBeGreaterThan(preResponseIndex)
+    expect(responseCompletedIndex).toBeGreaterThan(responseCreatedIndex)
     expect(body).toContain("response.completed")
     expect(body).not.toContain("codex.response.metadata")
+  } finally {
+    providerResponsesHandlerDependencies.resolveProviderConfig =
+      originalResolveProviderConfig
+  }
+})
+
+test("provider Responses handles a first Codex websocket error without metadata", async () => {
+  const originalResolveProviderConfig =
+    providerResponsesHandlerDependencies.resolveProviderConfig
+  MockWebSocket.responseError = {
+    message: "Codex quota exceeded",
+    statusCode: 429,
+  }
+  providerResponsesHandlerDependencies.resolveProviderConfig = () =>
+    Promise.resolve({
+      apiKey: "",
+      authType: "oauth2",
+      baseUrl: "https://chatgpt.example/backend-api",
+      models: { "gpt-5.4": {} },
+      name: "codex",
+      type: "openai-responses",
+    })
+
+  try {
+    const app = new Hono()
+    app.route("/:provider/v1/responses", providerResponsesRoutes)
+    const response = await app.request("/codex/v1/responses", {
+      body: JSON.stringify({
+        input: "hello",
+        model: "gpt-5.4",
+        stream: true,
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    })
+
+    expect(response.status).toBe(429)
+    expect(await response.json()).toEqual({
+      error: { message: "Codex quota exceeded" },
+    })
   } finally {
     providerResponsesHandlerDependencies.resolveProviderConfig =
       originalResolveProviderConfig
