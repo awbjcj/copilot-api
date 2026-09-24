@@ -149,7 +149,6 @@ export const translateAnthropicMessagesToResponsesPayload = (
     top_p: payload.top_p ?? null,
     max_output_tokens: Math.max(payload.max_tokens, 12800),
     tools: translatedTools,
-    tool_choice: toolChoice,
     metadata: payload.metadata ? { ...payload.metadata } : null,
     //prompt_cache_retention: "24h",  not work in gpt-5.4
     stream: payload.stream ?? null,
@@ -161,6 +160,11 @@ export const translateAnthropicMessagesToResponsesPayload = (
       context: isSupportAllTurns(payload) ? "all_turns" : "auto",
     },
     include: ["reasoning.encrypted_content"],
+  }
+
+  // Copilot /responses rejects tool_choice when no tools were translated.
+  if (translatedTools && translatedTools.length > 0) {
+    responsesPayload.tool_choice = toolChoice
   }
 
   if (hasOriginalTools) {

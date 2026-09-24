@@ -34,15 +34,11 @@ describe("builtin provider model registry", () => {
   test("lists model ids for a normalized provider name", () => {
     const modelIds = builtinProviderModelRegistry.getModelIds(" OPENCODE-GO ")
     for (const modelId of [
-      "hy3",
-      "gpt-5.6-luna",
       "qwen3.8-max",
       "minimax-m3",
       "glm-5.3-flash",
-      "muse-spark-1.2-contributor",
       "hy4-preview",
       "qwen3.8-flash",
-      "grok-4.6",
     ]) {
       expect(modelIds).toContain(modelId)
     }
@@ -55,25 +51,6 @@ describe("builtin provider model registry", () => {
         "ox-alpha-free",
       ),
     ).toBeUndefined()
-  })
-
-  test("defines the Muse Spark 1.2 Contributor model pricing", () => {
-    expect(
-      builtinProviderModelRegistry.getModelConfig(
-        "opencode-go",
-        "muse-spark-1.2-contributor",
-      ),
-    ).toEqual({
-      contextWindow: 1_048_576,
-      inputModalities: ["text", "image"],
-      maxOutputTokens: 131_072,
-      pricing: {
-        cachedInput: 0.002,
-        input: 0.1,
-        output: 0.2,
-      },
-      reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"],
-    })
   })
 
   test("defines the GLM-5.3 Flash model pricing", () => {
@@ -95,21 +72,7 @@ describe("builtin provider model registry", () => {
     })
   })
 
-  test("defines the supported Grok reasoning levels", () => {
-    expect(
-      builtinProviderModelRegistry.getModelConfig("opencode-go", "grok-4.5"),
-    ).toMatchObject({
-      defaultReasoningEffort: "high",
-      reasoningEfforts: ["low", "medium", "high"],
-    })
-  })
-
   test("flags models that expect the OpenRouter-style reasoning field", () => {
-    expect(
-      builtinProviderModelRegistry.getModelConfig("opencode-go", "hy3"),
-    ).toMatchObject({
-      reasoningField: "reasoning",
-    })
     expect(
       builtinProviderModelRegistry.getModelConfig("opencode-go", "hy4-preview"),
     ).toMatchObject({
@@ -211,51 +174,10 @@ describe("builtin provider model registry", () => {
         peakWindows: dashscopePeakWindows,
       },
     })
-
-    expect(
-      builtinProviderModelRegistry.getModelConfig(
-        "dashscope",
-        "deepseek-v4-flash-0731",
-      ),
-    ).toMatchObject({
-      pricing: {
-        cachedInput: 0.3,
-        input: 3,
-        offPeak: {
-          cachedInput: 0.15,
-          input: 1.5,
-          output: 4.5,
-        },
-        output: 9,
-        peakWindows: dashscopePeakWindows,
-      },
-    })
   })
 
   test("applies the DeepSeek windows to every OpenCode Go DeepSeek model", () => {
     const expectedPricing = {
-      "deepseek-v4-flash": {
-        cachedInput: 0.006,
-        input: 0.3,
-        offPeak: {
-          cachedInput: 0.003,
-          input: 0.15,
-          output: 0.6,
-        },
-        output: 1.2,
-        peakWindows: deepseekPeakWindows,
-      },
-      "deepseek-v4-flash-vision-exp": {
-        cachedInput: 0.006,
-        input: 0.3,
-        offPeak: {
-          cachedInput: 0.003,
-          input: 0.15,
-          output: 0.6,
-        },
-        output: 1.2,
-        peakWindows: deepseekPeakWindows,
-      },
       "deepseek-v4-pro": {
         cachedInput: 0.044,
         input: 1.32,

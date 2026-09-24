@@ -87,6 +87,7 @@ const bundledCodexModels = (
   }
 ).models
 const bundledCodexSlugs = bundledCodexModels.map((model) => model.slug)
+const CODEX_CATALOG_ETAG = 'W/"catalog-1"'
 
 let codexCatalogModels: Array<Record<string, unknown>> =
   createDefaultCodexCatalogModels()
@@ -99,9 +100,10 @@ const fetchMock = mock((url: string | URL | Request, _init?: RequestInit) => {
 
   if (requestUrl.startsWith("https://chatgpt.com/backend-api/codex/models")) {
     return Promise.resolve(
-      Response.json({
-        models: codexCatalogModels,
-      }),
+      Response.json(
+        { models: codexCatalogModels },
+        { headers: { ETag: CODEX_CATALOG_ETAG } },
+      ),
     )
   }
 
@@ -319,8 +321,7 @@ describe("model routes", () => {
     expect(modelIds).toContain("deepseek/deepseek-v4-pro")
     expect(modelIds).toContain("kimi/k3")
     expect(modelIds).toContain("kimi/k3-256k")
-    expect(modelIds).toContain("opencode-go/hy3")
-    expect(modelIds).toContain("opencode-go/gpt-5.6-luna")
+    expect(modelIds).toContain("opencode-go/gpt-6-luna")
     expect(
       body.data.find((model) => model.id === "deepseek/deepseek-flash"),
     ).toMatchObject({
@@ -346,6 +347,7 @@ describe("model routes", () => {
     })
 
     expect(response.status).toBe(200)
+    expect(response.headers.get("etag")).toBeNull()
     const body = (await response.json()) as {
       models: Array<Record<string, unknown> & { slug: string }>
     }
@@ -377,7 +379,6 @@ describe("model routes", () => {
     const modelSlugs = body.models.map((model) => model.slug)
     expect(modelSlugs).toContain("deepseek/deepseek-flash")
     expect(modelSlugs).toContain("kimi/k3")
-    expect(modelSlugs).toContain("opencode-go/hy3")
     expect(modelSlugs).toContain("opencode-go/qwen3.7-plus")
     expect(
       body.models.find((model) => model.slug === "deepseek/deepseek-flash"),
@@ -394,13 +395,6 @@ describe("model routes", () => {
         max_output_tokens: 64_000,
       },
     )
-    expect(
-      body.models.find((model) => model.slug === "opencode-go/hy3"),
-    ).toMatchObject({
-      context_window: 256_000,
-      input_modalities: ["text"],
-      max_output_tokens: 64_000,
-    })
     expect(
       body.models.find((model) => model.slug === "opencode-go/qwen3.7-plus"),
     ).toMatchObject({
@@ -560,6 +554,7 @@ describe("model routes", () => {
     })
 
     expect(response.status).toBe(200)
+    expect(response.headers.get("etag")).toBe(CODEX_CATALOG_ETAG)
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
       "https://chatgpt.com/backend-api/codex/models?client=codex",
@@ -592,6 +587,8 @@ describe("model routes", () => {
     })
 
     expect(response.status).toBe(200)
+    expect(response.headers.get("etag")).toBe(CODEX_CATALOG_ETAG)
+    expect(response.headers.get("cache-control")).toBe("private, no-store")
     const body = (await response.json()) as {
       models: Array<Record<string, unknown> & { slug: string }>
     }
@@ -815,21 +812,6 @@ describe("model routes", () => {
     expect(
       body.models.find((model) => model.slug === "opencode-go/qwen3-coder"),
     ).toMatchObject({ display_name: "Qwen3 Coder (opencode-go)" })
-    expect(
-      body.models.find((model) => model.slug === "opencode-go/grok-4.5"),
-    ).toMatchObject({
-      context_window: 500_000,
-      default_reasoning_level: "high",
-      display_name: "Grok 4.5 (opencode-go)",
-      input_modalities: ["text", "image"],
-      max_output_tokens: 64_000,
-      supported_reasoning_levels: [
-        { effort: "low", description: "low reasoning effort" },
-        { effort: "medium", description: "medium reasoning effort" },
-        { effort: "high", description: "high reasoning effort" },
-        { effort: "ultra", description: "ultra reasoning effort" },
-      ],
-    })
     expect(body.models.map((model) => model.slug)).not.toContain(
       "opencode-go/gpt-provider-only",
     )

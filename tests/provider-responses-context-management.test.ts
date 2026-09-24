@@ -287,7 +287,7 @@ describe("provider Responses context management", () => {
       authType: "authorization",
       baseUrl: "https://openai-responses.example",
       models: {
-        "grok-4.5": {},
+        "grok-4.7": {},
       },
       name: "opencode-go",
       type: "openai-responses",
@@ -297,7 +297,7 @@ describe("provider Responses context management", () => {
     const response = await app.request("/opencode-go/v1/responses", {
       body: JSON.stringify({
         input: "hello",
-        model: "grok-4.5",
+        model: "grok-4.7",
         reasoning: { effort: "max" },
       }),
       headers: {
@@ -314,7 +314,7 @@ describe("provider Responses context management", () => {
     const body = parseJsonRequestBody((init as RequestInit).body) as {
       reasoning?: { effort?: string }
     }
-    expect(body.reasoning?.effort).toBe("high")
+    expect(body.reasoning?.effort).toBe("xhigh")
   })
 
   for (const effort of ["none", "low", "max", "turbo"] as const) {

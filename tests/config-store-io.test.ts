@@ -4,10 +4,13 @@ import os from "node:os"
 import path from "node:path"
 
 import {
+  getAlphaSearchModel,
+  getMessageApiWebSearchModel,
   reloadConfig,
   setConfiguredApiKeys,
   writeConfigToDisk,
 } from "~/lib/config-store"
+import { getSmallModel } from "~/lib/model-policy"
 import { PATHS } from "~/lib/paths"
 
 interface StoredConfig {
@@ -77,9 +80,29 @@ test("reloadConfig creates a default config when it is missing", () => {
   const config = reloadConfig()
 
   expect(config.auth?.apiKeys).toEqual([])
+  expect(config.smallModel).toBe("gpt-6-luna")
+  expect(config.alphaSearchModel).toBe("gpt-6-luna")
+  expect(config.messageApiWebSearchModel).toBe("gpt-6-luna")
+  expect(config.extraPrompts).toBeUndefined()
+  expect(config.modelReasoningEfforts).toBeUndefined()
   if (process.platform !== "win32") {
     expect(fs.statSync(configPath).mode & 0o777).toBe(0o600)
   }
+})
+
+test("model getters use gpt-6-luna when config fields are absent", () => {
+  const configPath = useTempConfigPath()
+  fs.writeFileSync(
+    configPath,
+    '{"auth":{"adminApiKey":"existing-admin-key"}}\n',
+    "utf8",
+  )
+
+  reloadConfig()
+
+  expect(getSmallModel()).toBe("gpt-6-luna")
+  expect(getAlphaSearchModel()).toBe("gpt-6-luna")
+  expect(getMessageApiWebSearchModel()).toBe("gpt-6-luna")
 })
 
 test("reloadConfig preserves an unreadable config file", () => {

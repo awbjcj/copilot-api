@@ -126,13 +126,6 @@ export interface ProviderConfig {
   models?: Record<string, ModelConfig>
 }
 
-const gpt5ExplorationPrompt = `## Exploration and reading files
-- **Think first.** Before any tool call, decide ALL files/resources you will need.
-- **Batch everything.** If you need multiple files (even from different places), read them together.
-- **multi_tool_use.parallel** Use multi_tool_use.parallel to parallelize tool calls and only this.
-- **Only make sequential calls if you truly cannot know the next file without seeing a result first.**
-- **Workflow:** (a) plan all needed reads → (b) issue one parallel batch → (c) analyze results → (d) repeat if new, unpredictable reads arise.`
-
 const modelResponsesApiCompactThresholds = {
   "gpt-5.4": 272_000 * 0.8,
   "gpt-5.5": 272_000 * 0.8,
@@ -149,22 +142,16 @@ export const defaultConfig: AppConfig = {
   },
   providers: {},
   modelMappings: {},
-  extraPrompts: {
-    "gpt-5-mini": gpt5ExplorationPrompt,
-  },
-  smallModel: "gpt-5-mini",
+  smallModel: "gpt-6-luna",
   contextManagement: defaultContextManagement,
   modelResponsesApiCompactThresholds,
-  modelReasoningEfforts: {
-    "gpt-5-mini": "low",
-  },
   useMessagesApi: true,
   useResponsesApiWebSocket: true,
   upstreamTransport: defaultUpstreamTransportConfig,
   useResponsesApiWebSearch: true,
   alphaSearchCodexPriority: true,
-  alphaSearchModel: "gpt-5-mini",
-  messageApiWebSearchModel: "gpt-5-mini",
+  alphaSearchModel: "gpt-6-luna",
+  messageApiWebSearchModel: "gpt-6-luna",
 }
 
 let cachedConfig: AppConfig | null = null
@@ -562,13 +549,13 @@ export function isAlphaSearchCodexPriorityEnabled(): boolean {
 }
 
 export function getAlphaSearchModel(): string | undefined {
-  const model = getConfig().alphaSearchModel ?? "gpt-5-mini"
+  const model = getConfig().alphaSearchModel ?? "gpt-6-luna"
   return model.trim() || undefined
 }
 
 export function getMessageApiWebSearchModel(): string | undefined {
   const config = getConfig()
-  const model = config.messageApiWebSearchModel ?? "gpt-5-mini"
+  const model = config.messageApiWebSearchModel ?? "gpt-6-luna"
   return model && model.trim().length > 0 ? model : undefined
 }
 

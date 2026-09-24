@@ -203,42 +203,16 @@ export class BuiltinProviderModelRegistry {
       },
     },
     dashscope: {
-      "glm-5.1": {
-        contextWindow: 202_752,
-        inputModalities: ["text"],
-        maxOutputTokens: 64_000,
-        pricing: {
-          tiers: [
-            {
-              cachedInput: 1.2,
-              cacheCreationInput: 7.5,
-              explicitCachedInput: 0.6,
-              input: 6,
-              maxInputTokens: 32_000,
-              output: 24,
-            },
-            {
-              cachedInput: 1.6,
-              cacheCreationInput: 10,
-              explicitCachedInput: 0.8,
-              input: 8,
-              maxInputTokens: 200_000,
-              output: 28,
-            },
-          ],
-        },
-      },
-      "glm-5.2": {
+      "glm-5.3": {
         contextWindow: 1_000_000,
         inputModalities: ["text"],
         maxOutputTokens: 64_000,
         pricing: {
           cachedInput: 2,
-          cacheCreationInput: 10,
-          explicitCachedInput: 0.8,
           input: 8,
           output: 28,
         },
+        reasoningEfforts: ["low", "high", "max"],
       },
       "ZHIPU/GLM-5.3": {
         contextWindow: 1_048_576,
@@ -262,17 +236,16 @@ export class BuiltinProviderModelRegistry {
         },
         reasoningEfforts: ["low", "high", "max"],
       },
-      "qwen3.7-max": {
-        contextWindow: 1_000_000,
-        inputModalities: ["text"],
-        maxOutputTokens: 64_000,
+      "ZHIPU/GLM-5.3-FlashX": {
+        contextWindow: 1_048_576,
+        inputModalities: ["text", "image"],
+        maxOutputTokens: 131_072,
         pricing: {
-          cachedInput: 2.4,
-          cacheCreationInput: 15,
-          explicitCachedInput: 1.2,
-          input: 12,
-          output: 36,
+          cachedInput: 0.57,
+          input: 2,
+          output: 7,
         },
+        reasoningEfforts: ["low", "high", "max"],
       },
       "qwen3.8-max": {
         contextWindow: 1_000_000,
@@ -308,22 +281,6 @@ export class BuiltinProviderModelRegistry {
           explicitCachedInput: 0.1,
           input: 0.8,
           output: 2.7,
-        },
-      },
-      "deepseek-v4-flash-0731": {
-        contextWindow: 1_000_000,
-        inputModalities: ["text"],
-        maxOutputTokens: 64_000,
-        pricing: {
-          cachedInput: 0.3,
-          input: 3,
-          offPeak: {
-            cachedInput: 0.15,
-            input: 1.5,
-            output: 4.5,
-          },
-          output: 9,
-          peakWindows: dashscopePeakWindows,
         },
       },
       "deepseek-v4.1-flash": {
@@ -415,17 +372,6 @@ export class BuiltinProviderModelRegistry {
       },
     },
     "opencode-go": {
-      hy3: {
-        contextWindow: 256_000,
-        inputModalities: ["text"],
-        maxOutputTokens: 64_000,
-        pricing: {
-          cachedInput: 0.035,
-          input: 0.14,
-          output: 0.58,
-        },
-        reasoningField: "reasoning",
-      },
       "hy4-preview": {
         contextWindow: 1_024_000,
         inputModalities: ["text"],
@@ -438,7 +384,7 @@ export class BuiltinProviderModelRegistry {
         reasoningEfforts: ["high"],
         reasoningField: "reasoning",
       },
-      "gpt-5.6-luna": {
+      "gpt-6-luna": {
         pricing: {
           tiers: [
             {
@@ -446,25 +392,15 @@ export class BuiltinProviderModelRegistry {
               cachedInput: 0.01,
               input: 0.1,
               maxInputTokens: 272_000,
-              output: 0.6,
+              output: 0.5,
             },
             {
               cacheCreationInput: 0.25,
               cachedInput: 0.02,
               input: 0.2,
-              output: 0.9,
+              output: 0.75,
             },
           ],
-        },
-      },
-      "glm-5.2": {
-        contextWindow: 1_000_000,
-        inputModalities: ["text"],
-        maxOutputTokens: 64_000,
-        pricing: {
-          cachedInput: 0.26,
-          input: 1.4,
-          output: 4.4,
         },
       },
       "glm-5.3": {
@@ -488,17 +424,6 @@ export class BuiltinProviderModelRegistry {
         },
         reasoningEfforts: ["low", "high", "max"],
       },
-      "muse-spark-1.2-contributor": {
-        contextWindow: 1_048_576,
-        inputModalities: ["text", "image"],
-        maxOutputTokens: 131_072,
-        pricing: {
-          cachedInput: 0.002,
-          input: 0.1,
-          output: 0.2,
-        },
-        reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"],
-      },
       "muse-spark-1.3-contributor": {
         contextWindow: 1_048_576,
         inputModalities: ["text", "image"],
@@ -509,50 +434,6 @@ export class BuiltinProviderModelRegistry {
           output: 0.2,
         },
         reasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"],
-      },
-      "grok-4.5": {
-        contextWindow: 500_000,
-        defaultReasoningEffort: "high",
-        inputModalities: ["text", "image"],
-        maxOutputTokens: 64_000,
-        pricing: {
-          tiers: [
-            {
-              cachedInput: 0.5,
-              input: 2,
-              maxInputTokens: 200_000,
-              output: 6,
-            },
-            {
-              cachedInput: 1,
-              input: 4,
-              output: 12,
-            },
-          ],
-        },
-        reasoningEfforts: ["low", "medium", "high"],
-      },
-      "grok-4.6": {
-        contextWindow: 500_000,
-        defaultReasoningEffort: "high",
-        inputModalities: ["text", "image"],
-        maxOutputTokens: 64_000,
-        pricing: {
-          tiers: [
-            {
-              cachedInput: 0.5,
-              input: 2,
-              maxInputTokens: 200_000,
-              output: 6,
-            },
-            {
-              cachedInput: 1,
-              input: 4,
-              output: 12,
-            },
-          ],
-        },
-        reasoningEfforts: ["low", "medium", "high", "xhigh"],
       },
       "grok-4.7": {
         contextWindow: 500_000,
@@ -593,39 +474,6 @@ export class BuiltinProviderModelRegistry {
         },
         reasoningEfforts: ["low", "high", "max"],
       },
-      "deepseek-v4-flash": {
-        contextWindow: 1_000_000,
-        inputModalities: ["text"],
-        maxOutputTokens: 64_000,
-        pricing: {
-          cachedInput: 0.006,
-          input: 0.3,
-          offPeak: {
-            cachedInput: 0.003,
-            input: 0.15,
-            output: 0.6,
-          },
-          output: 1.2,
-          peakWindows: deepseekPeakWindows,
-        },
-      },
-      "deepseek-v4-flash-vision-exp": {
-        contextWindow: 1_000_000,
-        inputModalities: ["text", "image"],
-        maxOutputTokens: 384_000,
-        pricing: {
-          cachedInput: 0.006,
-          input: 0.3,
-          offPeak: {
-            cachedInput: 0.003,
-            input: 0.15,
-            output: 0.6,
-          },
-          output: 1.2,
-          peakWindows: deepseekPeakWindows,
-        },
-        reasoningEfforts: ["low", "high", "max"],
-      },
       "deepseek-v4-pro": {
         contextWindow: 1_000_000,
         inputModalities: ["text"],
@@ -642,16 +490,6 @@ export class BuiltinProviderModelRegistry {
           peakWindows: deepseekPeakWindows,
         },
       },
-      "kimi-k2.7-code": {
-        contextWindow: 262_144,
-        inputModalities: ["text", "image"],
-        maxOutputTokens: 64_000,
-        pricing: {
-          cachedInput: 0.19,
-          input: 0.95,
-          output: 4,
-        },
-      },
       "kimi-k3": {
         contextWindow: 1_048_576,
         inputModalities: ["text", "image"],
@@ -660,26 +498,6 @@ export class BuiltinProviderModelRegistry {
           cachedInput: 0.3,
           input: 3,
           output: 15,
-        },
-      },
-      "mimo-v2.5": {
-        contextWindow: 1_000_000,
-        inputModalities: ["text", "image"],
-        maxOutputTokens: 64_000,
-        pricing: {
-          cachedInput: 0.0028,
-          input: 0.14,
-          output: 0.28,
-        },
-      },
-      "mimo-v2.5-pro": {
-        contextWindow: 1_048_576,
-        inputModalities: ["text"],
-        maxOutputTokens: 64_000,
-        pricing: {
-          cachedInput: 0.0145,
-          input: 1.74,
-          output: 3.48,
         },
       },
       "mimo-v2.6-flash": {
@@ -725,17 +543,6 @@ export class BuiltinProviderModelRegistry {
           ],
         },
       },
-      "qwen3.7-max": {
-        contextWindow: 1_000_000,
-        inputModalities: ["text"],
-        maxOutputTokens: 64_000,
-        pricing: {
-          cacheCreationInput: 3.125,
-          cachedInput: 0.5,
-          input: 2.5,
-          output: 7.5,
-        },
-      },
       "qwen3.8-max": {
         contextWindow: 1_000_000,
         inputModalities: ["text", "image"],
@@ -758,16 +565,6 @@ export class BuiltinProviderModelRegistry {
           output: 0.47,
         },
         reasoningEfforts: ["low", "medium", "xhigh"],
-      },
-      "minimax-m2.7": {
-        contextWindow: 204_800,
-        inputModalities: ["text"],
-        maxOutputTokens: 64_000,
-        pricing: {
-          cachedInput: 0.06,
-          input: 0.3,
-          output: 1.2,
-        },
       },
       "minimax-m3": {
         contextWindow: 1_000_000,

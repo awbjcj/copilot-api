@@ -393,48 +393,6 @@ describe("token usage storage", () => {
     }
   })
 
-  test("prices OpenCode Go Hy3 and GPT-5.6 Luna with long-context tiers", () => {
-    const shortContextCosts = [
-      { model: "hy3", totalCostNanos: 1_950_000 },
-      { model: "gpt-5.6-luna", totalCostNanos: 2_045_000 },
-      { model: "qwen3.8-max", totalCostNanos: 23_000_000 },
-    ]
-
-    for (const { model, totalCostNanos } of shortContextCosts) {
-      expect(
-        resolveTokenUsageCost({
-          cache_creation_input_tokens: 1_000,
-          cache_read_input_tokens: 2_000,
-          input_tokens: 1_000,
-          model,
-          output_tokens: 3_000,
-          providerName: "opencode-go",
-          source: "provider",
-        }),
-      ).toEqual({
-        currency: "USD",
-        source: "builtin",
-        total_cost_nanos: totalCostNanos,
-      })
-    }
-
-    expect(
-      resolveTokenUsageCost({
-        cache_creation_input_tokens: 2_000,
-        cache_read_input_tokens: 2_000,
-        input_tokens: 269_000,
-        model: "gpt-5.6-luna",
-        output_tokens: 3_000,
-        providerName: "opencode-go",
-        source: "provider",
-      }),
-    ).toEqual({
-      currency: "USD",
-      source: "builtin",
-      total_cost_nanos: 57_040_000,
-    })
-  })
-
   test("prices DashScope Qwen3.8 Max with explicit cache prices", () => {
     expect(
       resolveTokenUsageCost({
@@ -467,23 +425,6 @@ describe("token usage storage", () => {
       currency: "CNY",
       source: "builtin",
       total_cost_nanos: 13_200_000,
-    })
-  })
-
-  test("prices DashScope DeepSeek V4 Flash 0731 with peak and off-peak prices", () => {
-    const usage = buildPricedUsage("deepseek-v4-flash-0731", "dashscope")
-
-    expect(resolveTokenUsageCost({ ...usage, at: dashscopePeakTime })).toEqual({
-      currency: "CNY",
-      source: "builtin",
-      total_cost_nanos: 30_600_000,
-    })
-    expect(
-      resolveTokenUsageCost({ ...usage, at: dashscopeOffPeakTime }),
-    ).toEqual({
-      currency: "CNY",
-      source: "builtin",
-      total_cost_nanos: 15_300_000,
     })
   })
 
@@ -525,16 +466,6 @@ describe("token usage storage", () => {
     const expectedCosts = [
       {
         model: "deepseek-v4.1-flash",
-        offPeakCostNanos: 1_956_000,
-        peakCostNanos: 3_912_000,
-      },
-      {
-        model: "deepseek-v4-flash",
-        offPeakCostNanos: 1_956_000,
-        peakCostNanos: 3_912_000,
-      },
-      {
-        model: "deepseek-v4-flash-vision-exp",
         offPeakCostNanos: 1_956_000,
         peakCostNanos: 3_912_000,
       },

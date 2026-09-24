@@ -35,6 +35,7 @@ import {
   applyDashScopePreserveThinkingDefault,
   applyOpenAICompatibleContextCache,
   isDashScopeAliyunProvider,
+  normalizeDashScopeAssistantTextContent,
 } from "~/lib/dashscope"
 import { HTTPError } from "~/lib/error"
 import { createHandlerLogger, debugJson, debugLazy } from "~/lib/logger"
@@ -686,6 +687,10 @@ const createOpenAICompatiblePayload = (
 
   if (!Object.hasOwn(openAIPayload, "parallel_tool_calls")) {
     openAIPayload.parallel_tool_calls = true
+  }
+
+  if (isDashScopeProvider) {
+    normalizeDashScopeAssistantTextContent(openAIPayload.messages)
   }
 
   const contextCacheEnabled = modelConfig?.contextCache ?? isDashScopeProvider
