@@ -1,0 +1,65 @@
+import { afterEach, expect, mock, test } from "bun:test"
+import { Hono } from "hono"
+
+import { state } from "~/lib/state"
+import { closeUsageStore } from "~/lib/token-usage"
+import { handleGenerateContent } from "~/routes/gemini/handler"
+
+const originalFetch = globalThis.fetch
+const originalCopilotToken = state.copilotToken
+const originalDbPath = process.env.COPILOT_API_SQLITE_DB_PATH
+
+afterEach(async () => {
+  globalThis.fetch = originalFetch
+  state.copilotToken = originalCopilotToken
+  await closeUsageStore()
+  if (originalDbPath === undefined) {
+    delete process.env.COPILOT_API_SQLITE_DB_PATH
+  } else {
+    process.env.COPILOT_API_SQLITE_DB_PATH = originalDbPath
+  }
+})
+
+test("Gemini streams text with null OpenAI usage and Copilot usage metadata", async () => {
+  await closeUsageStore()
+  process.env.COPILOT_API_SQLITE_DB_PATH = ":memory:"
+  state.copilotToken = "test-token"
+  const chunk = {
+    id: "chat-null-usage",
+    object: "chat.completion.chunk",
+    created: 0,
+    model: "gemini-test",
+    choices: [
+      {
+        index: 0,
+        delta: { content: "Hello" },
+        finish_reason: "stop",
+      },
+    ],
+    usage: null,
+    copilot_usage: { total_nano_aiu: 10 },
+  }
+  globalThis.fetch = mock(() =>
+    Promise.resolve(
+      new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, {
+        headers: { "content-type": "text/event-stream" },
+      }),
+    ),
+  ) as unknown as typeof fetch
+
+  const app = new Hono()
+  app.post("/stream", (c) => handleGenerateContent(c, "gemini-test", true))
+  const response = await app.request("/stream", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: "Hi" }] }],
+    }),
+  })
+
+  expect(response.status).toBe(200)
+  const body = await response.text()
+  expect(body).toContain('"text":"Hello"')
+  expect(body).toContain('"finishReason":"STOP"')
+  expect(body).not.toContain("usageMetadata")
+})

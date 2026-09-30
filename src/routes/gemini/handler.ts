@@ -166,7 +166,7 @@ export async function handleGenerateContent(
       debugJson(logger, "Gemini streaming chunk:", parsed)
 
       if (parsed.usage || parsed.copilot_usage) {
-        openAIUsage = parsed.usage
+        openAIUsage = parsed.usage ?? undefined
         usage = {
           ...normalizeOpenAIUsage(parsed.usage),
           total_nano_aiu: normalizeOptionalToken(

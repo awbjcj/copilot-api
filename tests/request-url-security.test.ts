@@ -7,7 +7,10 @@ import { withoutGatewayQueryKey } from "~/lib/request-url"
 import { resolveCodexAlphaSearchUrl } from "~/services/codex/alpha-search"
 import { resolveCodexModelsUrl } from "~/services/codex/get-models"
 import { resolveCodexImagesUrl } from "~/services/codex/images"
-import { forwardProviderImages } from "~/services/providers/provider-proxy"
+import {
+  forwardProviderAlphaSearch,
+  forwardProviderImages,
+} from "~/services/providers/provider-proxy"
 
 const originalFetch = globalThis.fetch
 afterEach(() => {
@@ -78,4 +81,53 @@ test("provider image forwarding strips gateway query credentials", async () => {
     "authorization",
     "Bearer provider-key",
   )
+})
+
+test("models.dev image and search endpoints strip gateway credentials without duplicating API paths", async () => {
+  const fetchMock = mock((_input: unknown, _init?: RequestInit) =>
+    Promise.resolve(Response.json({ ok: true })),
+  )
+  globalThis.fetch = fetchMock as unknown as typeof fetch
+
+  for (const baseUrl of [
+    "https://provider.example/api/v1",
+    "https://provider.example/api/v1/chat/completions",
+    "https://provider.example/api/v1/responses",
+  ]) {
+    const providerConfig = {
+      name: "custom",
+      type: "openai-compatible" as const,
+      authType: "authorization" as const,
+      apiKey: "provider-key",
+      baseUrl,
+      modelsDevProviderId: "custom",
+    }
+    for (const endpoint of [
+      "images/generations",
+      "images/edits",
+      "alpha/search",
+    ]) {
+      const request = new Request(
+        `http://gateway/v1/${endpoint}?%6bey=gateway-secret&key=other-secret&size=large&x=a%20b`,
+        { method: "POST", body: "{}" },
+      )
+      const response =
+        endpoint === "alpha/search" ?
+          await forwardProviderAlphaSearch(providerConfig, request)
+        : await forwardProviderImages(
+            providerConfig,
+            request,
+            endpoint === "images/edits" ? "edits" : "generations",
+          )
+      await response.text()
+      const lastCall = fetchMock.mock.calls.at(-1)
+      expect(lastCall?.[0]).toBe(
+        `https://provider.example/api/v1/${endpoint}?size=large&x=a+b`,
+      )
+      expect(lastCall?.[1]?.headers).toHaveProperty(
+        "authorization",
+        "Bearer provider-key",
+      )
+    }
+  }
 })
