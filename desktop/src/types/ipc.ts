@@ -26,6 +26,7 @@ export interface AuthResult {
   mode?: DesktopAuthMode
   providers?: string[]
   error?: string
+  cancelled?: boolean
 }
 
 export interface AuthStatus extends AuthResult {
@@ -75,6 +76,8 @@ export type ProviderAuthInput =
 
 export interface ServerStatus {
   running: boolean
+  restarting?: boolean
+  intentional?: boolean
   port?: number
   host?: string
   error?: string
@@ -203,6 +206,25 @@ export interface TokenUsageEventsPage {
 
 export type ThemePreference = 'light' | 'dark' | 'auto'
 
+export interface AppUpdateStatus {
+  phase:
+    | 'idle'
+    | 'checking'
+    | 'not-available'
+    | 'available'
+    | 'downloading'
+    | 'downloaded'
+    | 'installing'
+    | 'error'
+    | 'disabled'
+  currentVersion: string
+  manualInstall: boolean
+  releaseUrl: string
+  version?: string
+  percent?: number
+  error?: string
+}
+
 export type DesktopProxyMode = 'system' | 'custom' | 'direct'
 
 export interface DesktopProxySettings {
@@ -244,6 +266,9 @@ declare global {
       switchCodexAccount: (accountId: string) => Promise<AuthResult>
       removeCodexAccount: (accountId: string) => Promise<AuthResult>
       startCodexLogin: (input?: CodexLoginInput) => Promise<AuthResult>
+      cancelCodexLogin: () => Promise<boolean>
+      onCodexAuthUrl: (callback: (url: string) => void) => () => void
+      onCodexLoginSaving: (callback: () => void) => () => void
       logout: () => Promise<void>
       startServer: (
         port: number,
@@ -253,6 +278,12 @@ declare global {
       stopServer: () => Promise<void>
       getServerStatus: () => Promise<ServerStatus>
       getSettings: () => Promise<DesktopSettings>
+      getAppUpdateStatus: () => Promise<AppUpdateStatus>
+      checkAppUpdate: () => Promise<AppUpdateStatus>
+      installAppUpdate: () => Promise<AppUpdateStatus>
+      onAppUpdateStatus: (
+        callback: (status: AppUpdateStatus) => void,
+      ) => () => void
       saveSettings: (settings: DesktopSettings) => Promise<void>
       getModelMappingsConfig: () => Promise<ModelMappingsConfig>
       getProviderManagementConfig: () => Promise<ProviderManagementConfig>

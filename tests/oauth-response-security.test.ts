@@ -98,24 +98,30 @@ test("aborts a stalled Codex credential refresh at its deadline", async () => {
     })
   }) as typeof fetch
 
-  const failure = await refreshCodexCredentials(
-    {
-      accessToken: "old-access-token",
-      accountId: "account-id",
-      expiresAt: 0,
-      refreshToken: "old-refresh-token",
-    },
-    { timeoutMs: 10 },
-  ).then(
-    () => null,
-    (error: unknown) => error,
-  )
+  // Mocked fetch has no socket to keep the unref'ed abort timer running.
+  const keepAlive = setInterval(() => {}, 50)
+  try {
+    const failure = await refreshCodexCredentials(
+      {
+        accessToken: "old-access-token",
+        accountId: "account-id",
+        expiresAt: 0,
+        refreshToken: "old-refresh-token",
+      },
+      { timeoutMs: 10 },
+    ).then(
+      () => null,
+      (error: unknown) => error,
+    )
 
-  expect(failure).toBeInstanceOf(Error)
-  expect((failure as Error).message).toBe(
-    "Codex token refresh timed out after 10ms",
-  )
-  expect(refreshSignal?.aborted).toBe(true)
+    expect(failure).toBeInstanceOf(Error)
+    expect((failure as Error).message).toBe(
+      "Codex token refresh timed out after 10ms",
+    )
+    expect(refreshSignal?.aborted).toBe(true)
+  } finally {
+    clearInterval(keepAlive)
+  }
 })
 
 test("preserves non-timeout Codex refresh failures", async () => {

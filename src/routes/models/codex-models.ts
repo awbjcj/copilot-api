@@ -1,6 +1,10 @@
 import type { Context } from "hono"
 
-import { getRawProviderConfig, type ResolvedProviderConfig } from "~/lib/config"
+import {
+  getModelMappings,
+  getRawProviderConfig,
+  type ResolvedProviderConfig,
+} from "~/lib/config"
 import {
   isModernCodexClient,
   serializeCodexModelCatalog,
@@ -179,18 +183,27 @@ export async function handleMergedCodexModels(
         candidate.slug.slice(providerName.length + 1)
       : candidate.slug)
     const config = getRawProviderConfig(providerName)
-    if (!isProviderCodexModelVisible(config, modelId)) return false
-    if (getProviderCodexModels(config)?.includes(modelId)) {
+    const selectedModels = getProviderCodexModels(config)
+    const selectionId =
+      (
+        providerName === "github-copilot"
+        && selectedModels?.includes(candidate.slug)
+      ) ?
+        candidate.slug
+      : modelId
+    if (!isProviderCodexModelVisible(config, selectionId)) return false
+    if (selectedModels?.includes(selectionId)) {
       explicitSlugs.add(candidate.slug)
     }
     return true
   })
   const seenSlugs = new Set(visibleUpstreamModels.map((model) => model.slug))
+  const modelMappings = getModelMappings()
   const codexProviderAliases =
     options.includeCodexProviderAliases ?
       visibleUpstreamModels.flatMap((model, index) => {
         const slug = `codex/${model.slug}`
-        if (seenSlugs.has(slug)) return []
+        if (seenSlugs.has(slug) || modelMappings[model.slug] === slug) return []
         seenSlugs.add(slug)
         return [
           {

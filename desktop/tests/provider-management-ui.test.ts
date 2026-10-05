@@ -7,9 +7,12 @@ import ProviderManagementPanel from '../src/components/ProviderManagementPanel'
 import DashboardPage from '../src/pages/DashboardPage'
 import { LanguageProvider } from '../src/contexts/LanguageContext'
 import type {
+  AppUpdateStatus,
   ProviderManagementConfig,
   ProviderManagementUpdate,
   ProviderModelOptions,
+  ServerStatus,
+  TokenUsageSummary,
 } from '../src/types/ipc'
 
 const fixture: ProviderManagementConfig = {
@@ -85,6 +88,8 @@ beforeEach(async () => {
       onServerLog: () => () => {},
       windowIsMaximized: () => Promise.resolve(false),
       onWindowMaximizeChange: () => () => {},
+      getAppUpdateStatus: () => Promise.resolve({ phase: 'disabled' }),
+      onAppUpdateStatus: () => () => {},
     },
   })
   container = document.createElement('div')
@@ -146,7 +151,518 @@ async function changeText(
     node.dispatchEvent(new Event('input', { bubbles: true }))
   })
 }
+
+async function renderTokenUsageDashboard(summary: TokenUsageSummary) {
+  Object.assign(window.electronAPI, {
+    getServerStatus: () => Promise.resolve({ running: true }),
+    getServerAuthInfo: () => Promise.resolve({ enabled: false }),
+    fetchTokenUsage: () => Promise.resolve(summary),
+    fetchTokenUsageDaily: () => Promise.resolve({ ...summary, days: [] }),
+    fetchTokenUsageEvents: () =>
+      Promise.resolve({
+        period: summary.period,
+        range: summary.range,
+        items: [],
+        page: 1,
+        page_size: 10,
+        total: 0,
+        total_pages: 1,
+      }),
+  })
+  await act(async () => {
+    root.render(
+      createElement(LanguageProvider, {
+        children: createElement(DashboardPage, {
+          authMode: 'provider',
+          defaultPort: 4141,
+          defaultHost: '127.0.0.1',
+          onChangeAuth: () => {},
+        }),
+      }),
+    )
+  })
+  await act(async () => button('Token usage').click())
+}
+
+function createTokenUsageSummary(
+  costs: TokenUsageSummary['totals']['costs'],
+): TokenUsageSummary {
+  const totals = {
+    request_count: 10,
+    input_tokens: 200,
+    output_tokens: 9000,
+    cache_read_input_tokens: 600,
+    cache_creation_input_tokens: 200,
+    costs,
+    total_tokens: 10000,
+  }
+  return {
+    period: 'today',
+    range: { start_ms: 0, end_ms: 1, start_utc: '', end_utc: '' },
+    totals,
+    byModel: [{ ...totals, model: 'cached-model' }],
+  }
+}
+
+function leafDivTexts(): Array<string | null> {
+  return [...container.querySelectorAll('div')]
+    .filter((node) => node.childElementCount === 0)
+    .map((node) => node.textContent)
+}
+
 describe('provider management UI', () => {
+  test('shows token-weighted cache hit rates in the model breakdown', async () => {
+    const totals = {
+      request_count: 10,
+      input_tokens: 200,
+      output_tokens: 9000,
+      cache_read_input_tokens: 600,
+      cache_creation_input_tokens: 200,
+      costs: [
+        { currency: 'USD', amount: 1.25, total_cost_nanos: 1_250_000_000 },
+        { currency: 'CNY', amount: 9.5, total_cost_nanos: 9_500_000_000 },
+      ],
+      total_tokens: 10000,
+    }
+    const summary: TokenUsageSummary = {
+      period: 'today',
+      range: { start_ms: 0, end_ms: 1, start_utc: '', end_utc: '' },
+      totals,
+      byModel: [
+        { ...totals, model: 'cached-model' },
+        { ...totals, model: 'uncached-model', cache_read_input_tokens: 0 },
+        {
+          ...totals,
+          model: 'empty-model',
+          input_tokens: 0,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+      ],
+    }
+    Object.assign(window.electronAPI, {
+      getServerStatus: () => Promise.resolve({ running: true }),
+      getServerAuthInfo: () => Promise.resolve({ enabled: false }),
+      fetchTokenUsage: () => Promise.resolve(summary),
+      fetchTokenUsageDaily: () => Promise.resolve({ ...summary, days: [] }),
+      fetchTokenUsageEvents: () =>
+        Promise.resolve({
+          period: summary.period,
+          range: summary.range,
+          items: [],
+          page: 1,
+          page_size: 10,
+          total: 0,
+          total_pages: 1,
+        }),
+    })
+    await act(async () => {
+      root.render(
+        createElement(LanguageProvider, {
+          children: createElement(DashboardPage, {
+            authMode: 'provider',
+            defaultPort: 4141,
+            defaultHost: '127.0.0.1',
+            onChangeAuth: () => {},
+          }),
+        }),
+      )
+    })
+    await act(async () => button('Token usage').click())
+    const metricLabel = [...container.querySelectorAll('div')].find(
+      (node) =>
+        node.childElementCount === 0 && node.textContent === 'Cache hit rate',
+    )
+    expect(metricLabel?.parentElement?.textContent).toBe('60.0%Cache hit rate')
+    for (const [label, amount] of [
+      ['Cost (USD)', '$1.250000'],
+      ['Cost (CNY)', '¥9.500000'],
+    ]) {
+      const costLabel = [...container.querySelectorAll('div')].find(
+        (node) => node.childElementCount === 0 && node.textContent === label,
+      )
+      expect(
+        [...costLabel!.parentElement!.querySelectorAll('span')].map(
+          (node) => node.textContent,
+        ),
+      ).toEqual([amount])
+    }
+    const table = container.querySelector('table')
+    expect(
+      [...table!.querySelectorAll('th')].map((node) => node.textContent),
+    ).toEqual([
+      'Model',
+      'Requests',
+      'Input',
+      'Output',
+      'Cache read',
+      'Cache write',
+      'Cache hit rate',
+      'Total Tokens',
+      'Total Cost',
+    ])
+    const rows = [...table!.querySelectorAll('tbody tr')]
+    expect(
+      rows.map((row) => row.querySelectorAll('td')[6].textContent),
+    ).toEqual(['60.0%', '0.0%', '—'])
+    expect(rows.every((row) => row.querySelectorAll('td').length === 9)).toBe(
+      true,
+    )
+  })
+
+  test('only shows cost metrics for currencies recorded in the summary', async () => {
+    await renderTokenUsageDashboard(
+      createTokenUsageSummary([
+        { currency: 'USD', amount: 1.25, total_cost_nanos: 1_250_000_000 },
+      ]),
+    )
+
+    const labels = leafDivTexts()
+    expect(labels).toContain('Cost (USD)')
+    expect(labels).not.toContain('Cost (CNY)')
+  })
+
+  test('falls back to a single cost metric when no costs are recorded', async () => {
+    await renderTokenUsageDashboard(createTokenUsageSummary([]))
+
+    const labels = leafDivTexts()
+    expect(labels).toContain('Cost')
+    expect(labels).not.toContain('Cost (USD)')
+    expect(labels).not.toContain('Cost (CNY)')
+    const costLabel = [...container.querySelectorAll('div')].find(
+      (node) => node.childElementCount === 0 && node.textContent === 'Cost',
+    )
+    expect(costLabel?.parentElement?.textContent).toBe('—Cost')
+  })
+
+  test('shows Copilot percentages without rounding 99.9 percent to a full bar', async () => {
+    const quota = {
+      entitlement: 1500,
+      remaining: 1499,
+      quota_remaining: 0,
+      percent_remaining: 99.9,
+      unlimited: false,
+    }
+    Object.assign(window.electronAPI, {
+      getAuthStatus: () => Promise.resolve({ success: true, mode: 'copilot' }),
+      getServerStatus: () => Promise.resolve({ running: true }),
+      getServerAuthInfo: () => Promise.resolve({ enabled: false }),
+      fetchUsage: () =>
+        Promise.resolve({
+          quota_snapshots: {
+            premium_interactions: quota,
+            chat: quota,
+            completions: { ...quota, unlimited: true },
+          },
+        }),
+    })
+    await act(async () => {
+      root.render(
+        createElement(LanguageProvider, {
+          children: createElement(DashboardPage, {
+            authMode: 'copilot',
+            defaultPort: 4141,
+            defaultHost: '127.0.0.1',
+            onChangeAuth: () => {},
+          }),
+        }),
+      )
+    })
+    expect(container.textContent).toContain('1 / 1500 · 0.1% used')
+    expect(container.textContent).toContain('1499 / 1500 · 99.9% remaining')
+    const quotaBar = (label: string) =>
+      [...container.querySelectorAll('span')]
+        .find((node) => node.textContent === label)
+        ?.parentElement?.parentElement?.querySelector<HTMLDivElement>(
+          'div[style]',
+        )
+    expect(parseFloat(quotaBar('Premium')!.style.width)).toBeCloseTo(0.1)
+    expect(parseFloat(quotaBar('Chat')!.style.width)).toBe(99.9)
+    expect(quotaBar('Completions')!.style.width).toBe('100%')
+  })
+
+  test('does not report the update installer stopping the server as a crash', async () => {
+    let notify: ((status: ServerStatus) => void) | undefined
+    let notifyUpdate: ((status: AppUpdateStatus) => void) | undefined
+    const updateStatus: AppUpdateStatus = {
+      phase: 'downloaded',
+      currentVersion: '2.6.30',
+      version: '2.6.31',
+      manualInstall: false,
+      releaseUrl:
+        'https://github.com/caozhiyuan/copilot-api/releases/tag/v2.6.31',
+    }
+    Object.assign(window.electronAPI, {
+      getServerStatus: () =>
+        Promise.resolve({ running: true, port: 4141, host: '127.0.0.1' }),
+      getServerAuthInfo: () => Promise.resolve({ enabled: false }),
+      onServerStatus: (callback: (status: ServerStatus) => void) => {
+        notify = callback
+        return () => {
+          notify = undefined
+        }
+      },
+      getAppUpdateStatus: () => Promise.resolve(updateStatus),
+      onAppUpdateStatus: (callback: (status: AppUpdateStatus) => void) => {
+        notifyUpdate = callback
+        return () => {
+          notifyUpdate = undefined
+        }
+      },
+      installAppUpdate: () => {
+        const installing = { ...updateStatus, phase: 'installing' as const }
+        notifyUpdate?.(installing)
+        notify?.({ running: false, intentional: true })
+        return Promise.resolve(installing)
+      },
+    })
+    await act(async () => {
+      root.render(
+        createElement(LanguageProvider, {
+          children: createElement(DashboardPage, {
+            authMode: 'provider',
+            defaultPort: 4141,
+            defaultHost: '127.0.0.1',
+            onChangeAuth: () => {},
+          }),
+        }),
+      )
+    })
+    await act(async () => button('Restart and install').click())
+    expect(container.textContent).toContain(
+      'Stopping the server and installing…',
+    )
+    expect(container.textContent).not.toContain('Server stopped unexpectedly')
+    expect(button('Start server')).toBeDefined()
+
+    await act(async () => {
+      notifyUpdate?.({ ...updateStatus, error: 'installer failed' })
+    })
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      'installer failed',
+    )
+    expect(container.textContent).not.toContain('Server stopped unexpectedly')
+
+    await act(async () => {
+      notify?.({ running: true, port: 4141, host: '127.0.0.1' })
+    })
+    await act(async () => {
+      notify?.({ running: false, error: 'Process exited with code 9' })
+    })
+    expect(container.textContent).toContain('Process exited with code 9')
+  })
+
+  test('preserves explicit errors even for an intentional stop', async () => {
+    let notify: ((status: ServerStatus) => void) | undefined
+    Object.assign(window.electronAPI, {
+      getServerStatus: () => Promise.resolve({ running: true }),
+      getServerAuthInfo: () => Promise.resolve({ enabled: false }),
+      onServerStatus: (callback: (status: ServerStatus) => void) => {
+        notify = callback
+        return () => {
+          notify = undefined
+        }
+      },
+    })
+    await act(async () => {
+      root.render(
+        createElement(LanguageProvider, {
+          children: createElement(DashboardPage, {
+            authMode: 'provider',
+            defaultPort: 4141,
+            defaultHost: '127.0.0.1',
+            onChangeAuth: () => {},
+          }),
+        }),
+      )
+    })
+    await act(async () => {
+      notify?.({ running: false, intentional: true, error: 'stop failed' })
+    })
+    expect(container.textContent).toContain('stop failed')
+  })
+
+  test.each(['Logs', 'Token usage', 'Model mappings'])(
+    'keeps the %s tab during an automatic restart',
+    async (tabLabel) => {
+      let notify: ((status: ServerStatus) => void) | undefined
+      Object.assign(window.electronAPI, {
+        getServerStatus: () =>
+          Promise.resolve({ running: true, port: 4141, host: '127.0.0.1' }),
+        getServerAuthInfo: () => Promise.resolve({ enabled: false }),
+        getModelMappingsConfig: () =>
+          Promise.resolve({ configPath: 'config.json', modelMappings: {} }),
+        onServerStatus: (callback: (status: ServerStatus) => void) => {
+          notify = callback
+          return () => {
+            notify = undefined
+          }
+        },
+      })
+      await act(async () => {
+        root.render(
+          createElement(LanguageProvider, {
+            children: createElement(DashboardPage, {
+              authMode: 'provider',
+              defaultPort: 4141,
+              defaultHost: '127.0.0.1',
+              onChangeAuth: () => {},
+            }),
+          }),
+        )
+      })
+      await act(async () => button(tabLabel).click())
+      if (tabLabel === 'Model mappings') {
+        await act(async () => button('Add mapping').click())
+        await changeText(
+          container.querySelector<HTMLInputElement>('input')!,
+          'draft-model',
+        )
+      }
+      const activeTab = () =>
+        container.querySelector('[role="tab"][aria-selected="true"]')
+      expect(activeTab()?.textContent).toBe(tabLabel)
+      const modelFetchCount = fetchModels.mock.calls.length
+
+      await act(async () => {
+        notify?.({ running: false, restarting: true })
+      })
+      expect(activeTab()?.textContent).toBe(tabLabel)
+      expect(container.textContent).not.toContain('Server stopped unexpectedly')
+      expect(container.textContent).not.toContain('Start server')
+      expect(button('Restarting…').disabled).toBe(true)
+      expect(button('Stop').disabled).toBe(true)
+      expect(fetchModels).toHaveBeenCalledTimes(modelFetchCount)
+
+      await act(async () => {
+        notify?.({ running: true, port: 4141, host: '127.0.0.1' })
+      })
+      expect(activeTab()?.textContent).toBe(tabLabel)
+      expect(button('Restart').disabled).toBe(false)
+      expect(button('Stop').disabled).toBe(false)
+      expect(fetchModels).toHaveBeenCalledTimes(modelFetchCount + 1)
+      if (tabLabel === 'Model mappings') {
+        expect(container.querySelector<HTMLInputElement>('input')?.value).toBe(
+          'draft-model',
+        )
+      }
+    },
+  )
+
+  test('reports a failed restart and recovers when the server starts again', async () => {
+    let notify: ((status: ServerStatus) => void) | undefined
+    Object.assign(window.electronAPI, {
+      getServerStatus: () =>
+        Promise.resolve({ running: true, port: 4141, host: '127.0.0.1' }),
+      getServerAuthInfo: () => Promise.resolve({ enabled: false }),
+      onServerStatus: (callback: (status: ServerStatus) => void) => {
+        notify = callback
+        return () => {
+          notify = undefined
+        }
+      },
+    })
+    await act(async () => {
+      root.render(
+        createElement(LanguageProvider, {
+          children: createElement(DashboardPage, {
+            authMode: 'provider',
+            defaultPort: 4141,
+            defaultHost: '127.0.0.1',
+            onChangeAuth: () => {},
+          }),
+        }),
+      )
+    })
+    expect(button('Restart')).toBeDefined()
+    await act(async () => {
+      notify?.({ running: false, restarting: true })
+    })
+    await act(async () => {
+      notify?.({ running: false, error: 'server stopped' })
+    })
+    expect(container.textContent).toContain('server stopped')
+    expect(button('Start server')).toBeDefined()
+    expect(container.textContent).not.toContain('Restarting…')
+    await act(async () => {
+      notify?.({ running: true, port: 4242, host: '0.0.0.0' })
+    })
+    expect(container.textContent).not.toContain('server stopped')
+    expect(button('Restart')).toBeDefined()
+    expect(button('Stop')).toBeDefined()
+    expect(container.textContent).toContain('http://localhost:4242/v1')
+    expect(
+      [...container.querySelectorAll('button')].some(
+        (node) => node.textContent === 'Start server',
+      ),
+    ).toBe(false)
+    await act(async () => {
+      notify?.({ running: false })
+    })
+    expect(container.textContent).toContain('Server stopped unexpectedly')
+    expect(button('Start server')).toBeDefined()
+  })
+
+  test.each([true, false])(
+    'keeps manual restart controls disabled until startup finishes (running=%s)',
+    async (running) => {
+      let notify: ((status: ServerStatus) => void) | undefined
+      const pendingStart = Promise.withResolvers<ServerStatus>()
+      Object.assign(window.electronAPI, {
+        getServerStatus: () =>
+          Promise.resolve({ running: true, port: 4141, host: '127.0.0.1' }),
+        getServerAuthInfo: () => Promise.resolve({ enabled: false }),
+        onServerStatus: (callback: (status: ServerStatus) => void) => {
+          notify = callback
+          return () => {
+            notify = undefined
+          }
+        },
+        stopServer: () => {
+          notify?.({ running: false })
+          return Promise.resolve()
+        },
+        startServer: () => pendingStart.promise,
+      })
+      await act(async () => {
+        root.render(
+          createElement(LanguageProvider, {
+            children: createElement(DashboardPage, {
+              authMode: 'provider',
+              defaultPort: 4141,
+              defaultHost: '127.0.0.1',
+              onChangeAuth: () => {},
+            }),
+          }),
+        )
+      })
+      await act(async () => button('Logs').click())
+      await act(async () => button('Restart').click())
+      expect(button('Restarting…').disabled).toBe(true)
+      expect(button('Stop').disabled).toBe(true)
+      expect(container.textContent).not.toContain('Server stopped unexpectedly')
+      expect(
+        container.querySelector('[role="tab"][aria-selected="true"]')
+          ?.textContent,
+      ).toBe('Logs')
+
+      await act(async () => {
+        pendingStart.resolve(
+          running ?
+            { running: true, port: 4141, host: '127.0.0.1' }
+          : { running: false, error: 'startup failed' },
+        )
+      })
+      if (running) {
+        expect(button('Restart').disabled).toBe(false)
+        expect(button('Stop').disabled).toBe(false)
+      } else {
+        expect(container.textContent).toContain('startup failed')
+        expect(button('Start server')).toBeDefined()
+      }
+    },
+  )
+
   test('uses current Copilot authorization when starting, restarting, and refreshing', async () => {
     const getAuthStatus = mock(() =>
       Promise.resolve({ success: true, mode: 'copilot' }),
@@ -231,9 +747,6 @@ describe('provider management UI', () => {
     expect(container.querySelector('[role="dialog"]')).toBeNull()
     expect(container.querySelectorAll('nav button')).toHaveLength(2)
     expect(container.querySelector('h3')?.textContent).toBe('dashscope')
-    expect(container.textContent).toContain(
-      'Provider enablement applies to all clients and requests.',
-    )
     expect(fetchModels).not.toHaveBeenCalled()
     expect(
       [...container.querySelectorAll('button')].filter(
@@ -279,7 +792,7 @@ describe('provider management UI', () => {
       providers: { dashscope: { codexModels: ['qwen-plus'] } },
     })
   })
-  test('searches and selects discovered models without typing IDs, preserving unknown selections', async () => {
+  test('keeps selected models first while searching and preserves unknown selections', async () => {
     getConfig.mockImplementation(() =>
       Promise.resolve({
         ...fixture,
@@ -294,6 +807,18 @@ describe('provider management UI', () => {
       }),
     )
     await render({ serverRunning: true })
+    const modelOrder = () =>
+      [
+        ...container.querySelectorAll(
+          'input[type="checkbox"]:not([role="switch"])',
+        ),
+      ].map((node) => node.getAttribute('aria-label'))
+    expect(modelOrder()).toEqual([
+      'codex: unknown-model',
+      'codex: gpt-5.5',
+      'codex: gpt-6.1-sol',
+      'codex: live-model',
+    ])
     expect(
       container.querySelector<HTMLInputElement>(
         '[aria-label="codex: unknown-model"]',
@@ -310,11 +835,23 @@ describe('provider management UI', () => {
       )?.checked,
     ).toBe(true)
     await changeText(container.querySelector('input[type="search"]')!, '')
+    expect(modelOrder()).toEqual([
+      'codex: live-model',
+      'codex: unknown-model',
+      'codex: gpt-5.5',
+      'codex: gpt-6.1-sol',
+    ])
     await act(async () => {
       container
         .querySelector<HTMLInputElement>('[aria-label="codex: gpt-5.5"]')!
         .click()
     })
+    expect(modelOrder()).toEqual([
+      'codex: gpt-5.5',
+      'codex: live-model',
+      'codex: unknown-model',
+      'codex: gpt-6.1-sol',
+    ])
     await act(async () => {
       button('Save').click()
     })
@@ -378,7 +915,7 @@ describe('provider management UI', () => {
       },
     })
     expect(container.querySelector('[role="status"]')?.textContent).toContain(
-      'Restart',
+      'refreshed its configuration',
     )
     expect(
       [...container.querySelectorAll('button')].some(

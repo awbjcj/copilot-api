@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { AppUpdateStatus } from '../src/types/ipc'
 
 contextBridge.exposeInMainWorld('electronAPI', {
   getAuthStatus: () => ipcRenderer.invoke('auth:get-status'),
@@ -16,6 +17,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('auth:remove-codex-account', accountId),
   startCodexLogin: (input?: unknown) =>
     ipcRenderer.invoke('auth:start-codex-login', input),
+  cancelCodexLogin: () => ipcRenderer.invoke('auth:cancel-codex-login'),
+  onCodexAuthUrl: (callback: (url: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, url: string) =>
+      callback(url)
+    ipcRenderer.on('auth:codex-url', handler)
+    return () => ipcRenderer.off('auth:codex-url', handler)
+  },
+  onCodexLoginSaving: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('auth:codex-saving', handler)
+    return () => ipcRenderer.off('auth:codex-saving', handler)
+  },
   logout: () => ipcRenderer.invoke('auth:logout'),
 
   startServer: (port: number, authMode?: string, host?: string) =>
@@ -24,6 +37,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getServerStatus: () => ipcRenderer.invoke('server:get-status'),
 
   getSettings: () => ipcRenderer.invoke('settings:get'),
+  getAppUpdateStatus: () => ipcRenderer.invoke('update:get-status'),
+  checkAppUpdate: () => ipcRenderer.invoke('update:check'),
+  installAppUpdate: () => ipcRenderer.invoke('update:install'),
+  onAppUpdateStatus: (callback: (status: AppUpdateStatus) => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      status: AppUpdateStatus,
+    ) => callback(status)
+    ipcRenderer.on('update:status', handler)
+    return () => ipcRenderer.off('update:status', handler)
+  },
   saveSettings: (settings: unknown) =>
     ipcRenderer.invoke('settings:save', settings),
   getModelMappingsConfig: () => ipcRenderer.invoke('config:get-model-mappings'),
