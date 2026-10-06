@@ -65,10 +65,19 @@ export function validateRequest(request: unknown): string | null {
         "tools",
         "toolConfig",
         "generationConfig",
+        "safetySettings",
       ].includes(key)
     )
       return `Unsupported request field: ${key}`
   }
+  // SDKs such as langchain-google-genai always send `safetySettings: []`, which
+  // requests default behavior; non-empty settings cannot be honored upstream.
+  if (
+    request.safetySettings !== undefined
+    && (!Array.isArray(request.safetySettings)
+      || request.safetySettings.length > 0)
+  )
+    return "safetySettings is not supported; omit it or send an empty array"
   for (const [i, content] of request.contents.entries()) {
     if (!isRecord(content) || !Array.isArray(content.parts))
       return `contents[${i}].parts is required and must be an array`
@@ -325,6 +334,7 @@ export function normalizeGeminiRequest(request: GeminiRequest): GeminiRequest {
   const aliases: Record<string, string> = {
     generation_config: "generationConfig",
     system_instruction: "systemInstruction",
+    safety_settings: "safetySettings",
     tool_config: "toolConfig",
     function_declarations: "functionDeclarations",
     function_calling_config: "functionCallingConfig",

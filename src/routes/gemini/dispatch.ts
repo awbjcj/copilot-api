@@ -54,6 +54,31 @@ export async function resolveGeminiModel(requested: string) {
   }
 }
 
+const THINKING_LEVELS = ["minimal", "low", "medium", "high"] as const
+
+/**
+ * Converts a legacy Gemini thinkingBudget to a thinking level for models that
+ * only accept levels. -1 (dynamic) leaves the model default. The level is
+ * moved to the nearest supported one, preferring more thinking over less.
+ */
+export function thinkingBudgetToLevel(
+  budget: number,
+  supported?: Array<string>,
+): string | undefined {
+  if (budget < 0) return undefined
+  let index: number
+  if (budget === 0) index = 0
+  else if (budget <= 1024) index = 1
+  else if (budget <= 8192) index = 2
+  else index = 3
+  if (!supported?.length) return THINKING_LEVELS[index]
+  for (let i = index; i < THINKING_LEVELS.length; i++)
+    if (supported.includes(THINKING_LEVELS[i])) return THINKING_LEVELS[i]
+  for (let i = index - 1; i >= 0; i--)
+    if (supported.includes(THINKING_LEVELS[i])) return THINKING_LEVELS[i]
+  return undefined
+}
+
 /** Route via the existing gateway handlers so provider policy and cancellation are shared. */
 export async function dispatchGemini(
   c: Context,
@@ -88,6 +113,22 @@ export async function dispatchGemini(
     && supports.vision === false
   )
     throw new GeminiError("This model does not support images")
+  const geminiVersion = /^gemini-(\d+)(?:[.-]|$)/i.exec(
+    resolved.id.split("/").at(-1) ?? "",
+  )
+  if (
+    payload.thinking_budget !== undefined
+    && ((geminiVersion && Number(geminiVersion[1]) >= 3)
+      || (!resolved.provider && !supports.max_thinking_budget)
+      || resolved.responses)
+  ) {
+    const level = thinkingBudgetToLevel(
+      payload.thinking_budget,
+      supports.reasoning_effort,
+    )
+    delete payload.thinking_budget
+    if (level) payload.reasoning_effort = level
+  }
   if (
     payload.reasoning_effort
     && supports.reasoning_effort?.length
@@ -96,30 +137,7 @@ export async function dispatchGemini(
     throw new GeminiError(
       `Unsupported thinking level for ${resolved.id}; supported: ${supports.reasoning_effort.join(", ")}`,
     )
-  const geminiVersion = /^gemini-(\d+)(?:[.-]|$)/i.exec(
-    resolved.id.split("/").at(-1) ?? "",
-  )
-  if (
-    payload.thinking_budget !== undefined
-    && geminiVersion
-    && Number(geminiVersion[1]) >= 3
-  )
-    throw new GeminiError(
-      "Gemini 3 and later require thinkingLevel on this gateway; thinkingBudget is only supported for legacy models",
-    )
-  if (
-    payload.thinking_budget !== undefined
-    && !resolved.provider
-    && !supports.max_thinking_budget
-  )
-    throw new GeminiError(
-      "This model does not support thinkingBudget; use thinkingLevel instead",
-    )
   if (resolved.responses) {
-    if (payload.thinking_budget !== undefined)
-      throw new GeminiError(
-        "thinkingBudget is not supported by this model's Responses transport; use thinkingLevel",
-      )
     if (
       payload.stop?.length
       || payload.seed !== undefined

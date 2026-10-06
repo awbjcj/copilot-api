@@ -10,13 +10,17 @@ import type {
 } from "~/routes/gemini/gemini-types"
 import type { ResponsesResult } from "~/lib/types/responses"
 import { geminiRoutes } from "~/routes/gemini/route"
-import { geminiDispatchDependencies } from "~/routes/gemini/dispatch"
+import {
+  geminiDispatchDependencies,
+  thinkingBudgetToLevel,
+} from "~/routes/gemini/dispatch"
 import {
   geminiHandlerDependencies,
   translateChatStream,
   translateResponsesStream,
 } from "~/routes/gemini/handler"
 import { geminiErrorBody } from "~/routes/gemini/errors"
+import { normalizeGeminiRequest } from "~/routes/gemini/validation"
 import {
   convertGeminiToChatPayload,
   convertGeminiToMessages,
@@ -187,6 +191,13 @@ describe("runtime validation", () => {
       { text: "x", thought: "yes" },
     ].map((part) => ({ contents: [{ role: "user", parts: [part] }] })),
     { ...request(), cachedContent: "cache" },
+    {
+      ...request(),
+      safetySettings: [
+        { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+      ],
+    },
+    { ...request(), safetySettings: {} },
     { ...request(), tools: {} },
     { ...request(), tools: [{ googleSearch: {} }] },
     {
@@ -271,6 +282,33 @@ describe("runtime validation", () => {
           stopSequences: ["end"],
         },
       }),
+    ).toBeNull()
+  })
+  test("accepts the empty safetySettings sent by langchain-google-genai", async () => {
+    const response = await post(
+      {
+        ...request(),
+        safetySettings: [],
+        generationConfig: {
+          candidateCount: 1,
+          thinkingConfig: { thinking_level: "LOW" },
+        },
+      },
+      "/models/gemini-test:streamGenerateContent?alt=sse",
+    )
+    expect(response.status).toBe(200)
+    expect(transport).toBe("chat")
+    expect(captured).toHaveProperty("reasoning_effort", "low")
+    expect(captured).not.toHaveProperty("safetySettings")
+  })
+  test("accepts snake_case safety_settings when empty", () => {
+    expect(
+      validateGeminiRequest(
+        normalizeGeminiRequest({
+          ...request(),
+          safety_settings: [],
+        } as unknown as GeminiRequest),
+      ),
     ).toBeNull()
   })
 })
@@ -604,7 +642,7 @@ describe("routing and runtime contracts", () => {
     },
   )
   test.each(["gemini-3.5-flash", "gemini-3.8-flash", "gemini-3.1-pro-preview"])(
-    "rejects numeric thinking budgets for %s even when advertised upstream",
+    "converts numeric thinking budgets to a thinking level for %s",
     async (model) => {
       state.models!.data[0].id = model
       state.models!.data[0].capabilities.supports.max_thinking_budget = 8192
@@ -613,14 +651,66 @@ describe("routing and runtime contracts", () => {
           ...request(),
           generationConfig: { thinkingConfig: { thinkingBudget: 4096 } },
         },
-        `/models/${model}:generateContent`,
+        `/models/${model}:streamGenerateContent?alt=sse`,
       )
-      expect(response.status).toBe(400)
-      expect((await bodyOf(response)).error.message).toContain("thinkingLevel")
-      expect(transport).toBe("")
+      expect(response.status).toBe(200)
+      expect(transport).toBe("chat")
+      expect(captured).toHaveProperty("reasoning_effort", "medium")
+      expect(captured).not.toHaveProperty("thinking_budget")
     },
   )
-  test("rejects numeric thinking budgets for external Gemini 3 aliases", async () => {
+  test.each([
+    [0, "low"],
+    [512, "low"],
+    [8192, "medium"],
+    [24576, "high"],
+  ])(
+    "maps thinkingBudget %d to a level the model supports (%s)",
+    async (budget, level) => {
+      state.models!.data[0].id = "gemini-3.8-flash"
+      state.models!.data[0].capabilities.supports.reasoning_effort = [
+        "low",
+        "medium",
+        "high",
+      ]
+      const response = await post(
+        {
+          ...request(),
+          generationConfig: { thinkingConfig: { thinkingBudget: budget } },
+        },
+        "/models/gemini-3.8-flash:generateContent",
+      )
+      expect(response.status).toBe(200)
+      expect(captured).toHaveProperty("reasoning_effort", level)
+      expect(captured).not.toHaveProperty("thinking_budget")
+    },
+  )
+  test("dynamic thinkingBudget -1 keeps the model default level", async () => {
+    state.models!.data[0].id = "gemini-3.8-flash"
+    const response = await post(
+      {
+        ...request(),
+        generationConfig: { thinkingConfig: { thinkingBudget: -1 } },
+      },
+      "/models/gemini-3.8-flash:generateContent",
+    )
+    expect(response.status).toBe(200)
+    expect(captured).not.toHaveProperty("reasoning_effort")
+    expect(captured).not.toHaveProperty("thinking_budget")
+  })
+  test("converts thinking budgets on the Responses transport", async () => {
+    const response = await post(
+      {
+        ...request(),
+        generationConfig: { thinkingConfig: { thinkingBudget: 100 } },
+      },
+      "/models/gpt-test:generateContent",
+    )
+    expect(response.status).toBe(200)
+    expect(transport).toBe("responses")
+    expect(captured).toHaveProperty("reasoning.effort", "low")
+  })
+  test("converts numeric thinking budgets for external Gemini 3 aliases", async () => {
     getConfig().providers = {
       custom: {
         type: "openai-compatible",
@@ -636,8 +726,9 @@ describe("routing and runtime contracts", () => {
       },
       "/models/custom/gemini-3.8-flash:generateContent",
     )
-    expect(response.status).toBe(400)
-    expect(transport).toBe("")
+    expect(response.status).toBe(200)
+    expect(captured).toHaveProperty("reasoning_effort", "medium")
+    expect(captured).not.toHaveProperty("thinking_budget")
   })
   test("preserves supported legacy Gemini 2.5 thinking budgets", async () => {
     state.models!.data[0].id = "gemini-2.5-flash"
@@ -702,14 +793,6 @@ describe("routing and runtime contracts", () => {
           { ...request(), generationConfig: { stopSequences: ["x"] } },
           "/models/gpt-test:generateContent",
         )
-      ).status,
-    ).toBe(400)
-    expect(
-      (
-        await post({
-          ...request(),
-          generationConfig: { thinkingConfig: { thinkingBudget: 5 } },
-        })
       ).status,
     ).toBe(400)
   })
@@ -998,5 +1081,21 @@ describe("stateless Interactions", () => {
     const body = await response.text()
     expect(body).toContain('"event_type":"error"')
     expect(body).not.toContain('"event_type":"interaction.completed"')
+  })
+})
+
+describe("thinkingBudgetToLevel", () => {
+  test("maps budgets to levels without a supported list", () => {
+    expect(thinkingBudgetToLevel(-1)).toBeUndefined()
+    expect(thinkingBudgetToLevel(0)).toBe("minimal")
+    expect(thinkingBudgetToLevel(1024)).toBe("low")
+    expect(thinkingBudgetToLevel(1025)).toBe("medium")
+    expect(thinkingBudgetToLevel(8193)).toBe("high")
+  })
+  test("falls back to the nearest supported level", () => {
+    expect(thinkingBudgetToLevel(0, ["low", "high"])).toBe("low")
+    expect(thinkingBudgetToLevel(4096, ["low", "high"])).toBe("high")
+    expect(thinkingBudgetToLevel(20000, ["minimal", "low"])).toBe("low")
+    expect(thinkingBudgetToLevel(100, ["xhigh"])).toBeUndefined()
   })
 })

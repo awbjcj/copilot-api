@@ -1,7 +1,8 @@
 services:
   data-init:
-    image: ghcr.io/caozhiyuan/copilot-api:latest
-    pull_policy: always
+    build: .
+    image: copilot-api:local
+    pull_policy: never
     user: "0:0"
     entrypoint: ["/bin/sh", "-c"]
     environment:
@@ -97,8 +98,8 @@ services:
     restart: "no"
 
   copilot-api:
-    image: ghcr.io/caozhiyuan/copilot-api:latest
-    pull_policy: always
+    image: copilot-api:local
+    pull_policy: never
     user: bun
     depends_on:
       data-init:

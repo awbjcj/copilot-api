@@ -1,0 +1,8 @@
+# Local override: share the host network and bind to loopback only, so the
+# gateway runs without gateway API keys (same as a native local run).
+services:
+  copilot-api:
+    network_mode: host
+    ports: !reset []
+    environment:
+      HOST: 127.0.0.1

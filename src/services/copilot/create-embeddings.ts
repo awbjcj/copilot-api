@@ -8,7 +8,12 @@ export const createEmbeddings = async (payload: EmbeddingRequest) => {
   const response = await fetch(`${copilotBaseUrl(state)}/embeddings`, {
     method: "POST",
     headers: copilotHeaders(state),
-    body: JSON.stringify(payload),
+    // OpenAI accepts a bare string, but Copilot rejects it with 400.
+    body: JSON.stringify({
+      ...payload,
+      input:
+        typeof payload.input === "string" ? [payload.input] : payload.input,
+    }),
   })
 
   if (!response.ok) throw new HTTPError("Failed to create embeddings", response)
@@ -17,7 +22,7 @@ export const createEmbeddings = async (payload: EmbeddingRequest) => {
 }
 
 export interface EmbeddingRequest {
-  input: Array<string>
+  input: string | Array<string>
   model: string
 }
 
