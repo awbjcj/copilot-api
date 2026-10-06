@@ -14,8 +14,13 @@ COMMAND=()
 docker info --format '{{.ServerVersion}}' >/dev/null
 if docker container inspect "$CONTAINER" >/dev/null 2>&1; then
   if [ -n "$(docker container inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' "$CONTAINER")" ]; then
-    echo "error: $CONTAINER is managed by Compose; this target replaces standalone gateway containers" >&2
-    exit 1
+    SERVICE="$(docker container inspect --format '{{index .Config.Labels "com.docker.compose.service"}}' "$CONTAINER")"
+    echo "==> $CONTAINER is managed by Compose; rebuilding service $SERVICE locally from $PROJECT_ROOT"
+    cd "$PROJECT_ROOT"
+    docker compose build --pull --no-cache "$SERVICE"
+    docker compose up -d --force-recreate "$SERVICE"
+    docker ps --filter "name=^/${CONTAINER}$" --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+    exit 0
   fi
 
   IMAGE="$(docker container inspect --format '{{.Config.Image}}' "$CONTAINER")"
@@ -51,8 +56,9 @@ if docker container inspect "$CONTAINER" >/dev/null 2>&1; then
 fi
 
 if docker image inspect "$IMAGE" >/dev/null 2>&1; then
-  echo "==> Removing image $IMAGE"
-  docker image rm "$IMAGE"
+  # Other containers (e.g. Compose) may still reference the old image; retagging replaces it.
+  echo "==> Removing image $IMAGE (skipped if in use; the build retags it)"
+  docker image rm "$IMAGE" >/dev/null 2>&1 || true
 fi
 
 echo "==> Building $IMAGE from $PROJECT_ROOT without cached layers"
