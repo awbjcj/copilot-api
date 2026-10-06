@@ -1039,6 +1039,9 @@ describe("prepareMessagesApiPayload", () => {
     const payload: AnthropicMessagesPayload = {
       model: "gpt-5.4",
       max_tokens: 128,
+      output_config: {
+        format: { type: "json_schema", schema: { type: "object" } },
+      },
       system: [
         {
           type: "text",
@@ -1118,7 +1121,10 @@ describe("prepareMessagesApiPayload", () => {
       type: "adaptive",
       display: "summarized",
     })
-    expect(payload.output_config).toEqual({ effort: "xhigh" })
+    expect(payload.output_config).toEqual({
+      effort: "xhigh",
+      format: { type: "json_schema", schema: { type: "object" } },
+    })
   })
 
   test("keeps signature-only thinking blocks", () => {

@@ -1,3 +1,5 @@
+import { GeminiError } from "./errors"
+import { validateRequest } from "./validation"
 import type {
   ChatCompletionResponse,
   ChatCompletionsPayload,
@@ -53,21 +55,15 @@ function geminiPartsReasoning(
   parts: Array<GeminiPart>,
 ): GeminiReasoning | undefined {
   const thoughts = parts.filter(isGeminiThoughtPart)
-  if (thoughts.length === 0) return undefined
+  const signature = parts
+    .map((p) => (p as { thoughtSignature?: string }).thoughtSignature)
+    .find(Boolean)
+  if (thoughts.length === 0 && !signature) return undefined
   const text = thoughts.map((p) => p.text).join("")
-  const signature = thoughts.map((p) => p.thoughtSignature).find(Boolean)
   return { text: text || null, signature: signature ?? null }
 }
 
-/**
- * Synthesizes a stable tool-call id from a function name. Gemini function
- * calls/responses have no ids and are correlated by name, but the internal
- * (OpenAI) format correlates tool calls and their results by id. Deriving the
- * id from the name keeps calls and their responses matched.
- *
- * Limitation: multiple concurrent calls to the same function in one turn share
- * an id. This is an accepted edge case; distinct function names are the norm.
- */
+/** Legacy ID prefix; turn/ordinal suffixes disambiguate repeated calls. */
 export function geminiToolCallId(name: string): string {
   return `gemini-call-${name}`
 }
@@ -93,28 +89,8 @@ export function parseGeminiRequestBody(body: string): GeminiRequest | null {
 /**
  * Validates a Gemini generateContent request.
  */
-export function validateGeminiRequest(request: GeminiRequest): string | null {
-  if (!Array.isArray(request.contents)) {
-    return "contents is required and must be an array"
-  }
-  if (request.contents.length === 0) {
-    return "contents array cannot be empty"
-  }
-  for (const [i, content] of request.contents.entries()) {
-    if (!content || !Array.isArray(content.parts)) {
-      return `contents[${i}].parts is required and must be an array`
-    }
-    if (
-      content.role !== undefined
-      && !["user", "model"].includes(content.role)
-    ) {
-      return `contents[${i}].role must be 'user' or 'model'`
-    }
-  }
-  if (request.tools !== undefined && !Array.isArray(request.tools)) {
-    return "tools must be an array"
-  }
-  return null
+export function validateGeminiRequest(request: unknown): string | null {
+  return validateRequest(request)
 }
 
 /**
@@ -152,8 +128,8 @@ function toStandardBase64(data: string): string {
  * Copilot's chat-completions endpoint takes images as data URLs, and
  * `createChatCompletions` turns any `image_url` part into a vision request, so
  * translating here is all that is needed for Gemini-dialect clients to send
- * images through the proxy. Non-image inline data (audio, video) is dropped
- * because the internal format has no equivalent part.
+ * images through the proxy. Non-image media is rejected because this adapter
+ * cannot preserve its meaning through every supported upstream.
  */
 function geminiInlineImageParts(parts: Array<GeminiPart>): Array<ImagePart> {
   const images: Array<ImagePart> = []
@@ -174,7 +150,7 @@ function geminiInlineImageParts(parts: Array<GeminiPart>): Array<ImagePart> {
       || typeof inline.data !== "string"
       || !inline.data
     ) {
-      continue
+      throw new GeminiError("Only non-empty inline image data is supported")
     }
     images.push({
       type: "image_url",
@@ -213,6 +189,27 @@ export function convertGeminiToMessages(
   request: GeminiRequest,
 ): Array<Message> {
   const messages: Array<Message> = []
+  const pending: Array<{ name: string; id: string }> = []
+  const seen = new Set<string>()
+  let ordinal = 0
+  const callId = (call: { id?: string; name: string }): string => {
+    let id = call.id ?? geminiToolCallId(call.name)
+    if (!call.id && seen.has(id)) id = `${id}-${++ordinal}`
+    if (seen.has(id)) throw new GeminiError(`Duplicate function call id: ${id}`)
+    seen.add(id)
+    pending.push({ name: call.name, id })
+    return id
+  }
+  const resultId = (call: { id?: string; name: string }): string => {
+    const index = pending.findIndex((p) =>
+      call.id ? p.id === call.id && p.name === call.name : p.name === call.name,
+    )
+    if (index < 0)
+      throw new GeminiError(
+        `No matching function call for ${call.id ?? call.name}`,
+      )
+    return pending.splice(index, 1)[0].id
+  }
 
   if (request.systemInstruction?.parts) {
     const systemText = geminiPartsText(request.systemInstruction.parts)
@@ -228,12 +225,19 @@ export function convertGeminiToMessages(
       (
         p,
       ): p is {
-        functionCall: { name: string; args?: Record<string, unknown> }
+        functionCall: {
+          id?: string
+          name: string
+          args?: Record<string, unknown>
+        }
       } => (p as { functionCall?: unknown }).functionCall !== undefined,
     )
     const functionResponses = parts.filter(
-      (p): p is { functionResponse: { name: string; response: unknown } } =>
-        (p as { functionResponse?: unknown }).functionResponse !== undefined,
+      (
+        p,
+      ): p is {
+        functionResponse: { id?: string; name: string; response: unknown }
+      } => (p as { functionResponse?: unknown }).functionResponse !== undefined,
     )
 
     if (content.role === "model") {
@@ -253,7 +257,7 @@ export function convertGeminiToMessages(
           content: textParts || null,
           ...reasoningFields,
           tool_calls: functionCalls.map((fc) => ({
-            id: geminiToolCallId(fc.functionCall.name),
+            id: callId(fc.functionCall),
             type: "function" as const,
             function: {
               name: fc.functionCall.name,
@@ -277,7 +281,7 @@ export function convertGeminiToMessages(
         messages.push({
           role: "tool",
           content: resultText,
-          tool_call_id: geminiToolCallId(fr.functionResponse.name),
+          tool_call_id: resultId(fr.functionResponse),
           name: fr.functionResponse.name,
         })
       }
@@ -383,7 +387,9 @@ export function convertGeminiTools(tools: Array<GeminiTool>): Array<Tool> {
           name: decl.name,
           description: decl.description,
           parameters: ensureObjectSchema(
-            normalizeGeminiSchema(decl.parameters ?? {}),
+            normalizeGeminiSchema(
+              decl.parametersJsonSchema ?? decl.parameters ?? {},
+            ),
           ),
         },
       })
@@ -414,9 +420,19 @@ export function convertGeminiToChatPayload(
     }
   }
 
+  const allowed =
+    request.toolConfig?.functionCallingConfig?.allowedFunctionNames
+  if (allowed?.length && payload.tools) {
+    payload.tools = payload.tools.filter((tool) =>
+      allowed.includes(tool.function.name),
+    )
+  }
   const mode = request.toolConfig?.functionCallingConfig?.mode
   if (mode === "ANY") {
-    payload.tool_choice = "required"
+    payload.tool_choice =
+      allowed?.length === 1 ?
+        { type: "function", function: { name: allowed[0] } }
+      : "required"
   } else if (mode === "NONE") {
     payload.tool_choice = "none"
   } else if (mode === "AUTO") {
@@ -428,9 +444,7 @@ export function convertGeminiToChatPayload(
     if (config.temperature !== undefined)
       payload.temperature = config.temperature
     if (config.topP !== undefined) payload.top_p = config.topP
-    // Note: Gemini's `topK` is intentionally not forwarded. Copilot's
-    // chat/completions endpoint rejects `top_k` with a 400 "Bad Request",
-    // and Gemini SDKs send a default `topK`, which would break every request.
+    // topK is rejected at the request boundary: the upstream chat API does not support it.
     if (config.maxOutputTokens !== undefined) {
       payload.max_tokens = config.maxOutputTokens
     }
@@ -439,6 +453,36 @@ export function convertGeminiToChatPayload(
     }
   }
 
+  if (config) {
+    const format = config.responseFormat?.text
+    const json =
+      config.responseMimeType === "application/json"
+      || format?.mimeType === "APPLICATION_JSON"
+    const schema =
+      format?.schema ?? config.responseJsonSchema ?? config.responseSchema
+    if (json) {
+      payload.response_format =
+        schema ?
+          {
+            type: "json_schema",
+            json_schema: {
+              name: "gemini_response",
+              schema: normalizeGeminiSchema(schema) as Record<string, unknown>,
+            },
+          }
+        : { type: "json_object" }
+    }
+    if (config.thinkingConfig?.thinkingLevel)
+      payload.reasoning_effort =
+        config.thinkingConfig.thinkingLevel.toLowerCase()
+    if (config.thinkingConfig?.thinkingBudget !== undefined)
+      payload.thinking_budget = config.thinkingConfig.thinkingBudget
+    if (config.seed !== undefined) payload.seed = config.seed
+    if (config.presencePenalty !== undefined)
+      payload.presence_penalty = config.presencePenalty
+    if (config.frequencyPenalty !== undefined)
+      payload.frequency_penalty = config.frequencyPenalty
+  }
   return payload
 }
 
@@ -492,9 +536,12 @@ export function buildGeminiParts(
       try {
         args = JSON.parse(tc.function.arguments) as Record<string, unknown>
       } catch {
-        // keep empty on malformed argument JSON
+        throw new GeminiError(
+          "Upstream returned malformed function arguments",
+          502,
+        )
       }
-      parts.push({ functionCall: { name: tc.function.name, args } })
+      parts.push({ functionCall: { id: tc.id, name: tc.function.name, args } })
     }
   }
   if (parts.length === 0) {
@@ -511,6 +558,9 @@ function toGeminiUsage(
     promptTokenCount: usage.prompt_tokens,
     candidatesTokenCount: usage.completion_tokens,
     totalTokenCount: usage.total_tokens,
+    ...(usage.prompt_tokens_details?.cached_tokens !== undefined ?
+      { cachedContentTokenCount: usage.prompt_tokens_details.cached_tokens }
+    : {}),
   }
 }
 

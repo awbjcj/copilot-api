@@ -1,3 +1,4 @@
+import { createFallbackModel } from "~/lib/provider-model"
 import { afterEach, expect, mock, test } from "bun:test"
 import { Hono } from "hono"
 
@@ -5,11 +6,13 @@ import { state } from "~/lib/state"
 import { closeUsageStore } from "~/lib/token-usage"
 import { handleGenerateContent } from "~/routes/gemini/handler"
 
+const originalModels = state.models
 const originalFetch = globalThis.fetch
 const originalCopilotToken = state.copilotToken
 const originalDbPath = process.env.COPILOT_API_SQLITE_DB_PATH
 
 afterEach(async () => {
+  state.models = originalModels
   globalThis.fetch = originalFetch
   state.copilotToken = originalCopilotToken
   await closeUsageStore()
@@ -23,6 +26,7 @@ afterEach(async () => {
 test("Gemini streams text with null OpenAI usage and Copilot usage metadata", async () => {
   await closeUsageStore()
   process.env.COPILOT_API_SQLITE_DB_PATH = ":memory:"
+  state.models = { object: "list", data: [createFallbackModel("gemini-test")] }
   state.copilotToken = "test-token"
   const chunk = {
     id: "chat-null-usage",

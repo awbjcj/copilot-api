@@ -12,9 +12,8 @@
 
 /**
  * A single Gemini content part. Text, inline image data, and
- * function-call/response parts are supported; other part kinds (fileData) are
- * ignored during conversion since the internal format is text/tool/image
- * oriented.
+ * function-call/response parts are supported. Unsupported media is rejected
+ * rather than silently removed from a conversation.
  *
  * Inline data is accepted in both the camelCase (`inlineData`/`mimeType`) form
  * the google-genai SDKs send and the snake_case (`inline_data`/`mime_type`)
@@ -22,17 +21,22 @@
  *
  * A text part with `thought: true` represents model reasoning ("thinking").
  * `thoughtSignature` carries the opaque signature Gemini requires to be echoed
- * back on subsequent turns (only provided when function calling is enabled).
+ * back on subsequent turns.
  */
 export type GeminiPart =
   | { text: string; thought?: boolean; thoughtSignature?: string }
   | { inlineData: GeminiInlineData }
   | { inline_data: GeminiInlineDataSnake }
+  | { fileData: { mimeType: string; fileUri: string } }
   | {
-      functionCall: { name: string; args?: Record<string, unknown> }
+      functionCall: {
+        id?: string
+        name: string
+        args?: Record<string, unknown>
+      }
       thoughtSignature?: string
     }
-  | { functionResponse: { name: string; response: unknown } }
+  | { functionResponse: { id?: string; name: string; response: unknown } }
 
 /** Base64-encoded inline media, camelCase form (google-genai SDKs). */
 export interface GeminiInlineData {
@@ -62,6 +66,7 @@ export interface GeminiFunctionDeclaration {
   name: string
   description?: string
   parameters?: Record<string, unknown>
+  parametersJsonSchema?: Record<string, unknown>
 }
 
 /**
@@ -80,6 +85,24 @@ export interface GeminiGenerationConfig {
   topK?: number
   maxOutputTokens?: number
   stopSequences?: Array<string>
+  responseMimeType?: string
+  responseSchema?: Record<string, unknown>
+  responseJsonSchema?: Record<string, unknown>
+  responseFormat?: {
+    text?: {
+      mimeType?: "APPLICATION_JSON" | "TEXT_PLAIN"
+      schema?: Record<string, unknown>
+    }
+  }
+  thinkingConfig?: {
+    thinkingLevel?: "MINIMAL" | "LOW" | "MEDIUM" | "HIGH"
+    thinkingBudget?: number
+    includeThoughts?: boolean
+  }
+  seed?: number
+  presencePenalty?: number
+  frequencyPenalty?: number
+  candidateCount?: number
 }
 
 /**
@@ -91,7 +114,7 @@ export interface GeminiRequest {
   tools?: Array<GeminiTool>
   toolConfig?: {
     functionCallingConfig?: {
-      mode?: "AUTO" | "ANY" | "NONE"
+      mode?: "AUTO" | "ANY" | "NONE" | "VALIDATED"
       allowedFunctionNames?: Array<string>
     }
   }
@@ -121,6 +144,8 @@ export interface GeminiUsageMetadata {
   promptTokenCount: number
   candidatesTokenCount: number
   totalTokenCount: number
+  cachedContentTokenCount?: number
+  thoughtsTokenCount?: number
 }
 
 /**

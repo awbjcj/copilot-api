@@ -951,6 +951,7 @@ export const prepareMessagesApiPayload = (
         | "max"
     }
     payload.output_config = {
+      ...payload.output_config,
       effort: effort,
     }
   }

@@ -1097,6 +1097,14 @@ describe("Responses Lite to Messages translation", () => {
       },
     })
 
+    expect(translation.messagesPayload.output_config?.format).toHaveProperty(
+      "type",
+      "json_schema",
+    )
+    expect(translation.messagesPayload.output_config?.format).toHaveProperty(
+      "schema.properties.title.minLength",
+      1,
+    )
     const text = trailingUserMessageText(translation)
     expect(text).toContain('"codex_output_schema"')
     expect(text).toContain('"minLength": 1')

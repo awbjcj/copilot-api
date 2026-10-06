@@ -1,35 +1,57 @@
 import { Hono } from "hono"
 
-import { forwardError } from "~/lib/error"
+import { forwardGeminiError, GeminiError } from "./errors"
+import { handleInteraction } from "./interactions"
 
 import {
   handleGenerateContent,
   handleGetModel,
   handleListModels,
+  handleCountTokens,
 } from "./handler"
 
 export const geminiRoutes = new Hono()
 
-// GET /v1beta/models - list available models (Gemini shape)
-geminiRoutes.get("/models", (c) => {
+geminiRoutes.post("/interactions", async (c) => {
   try {
-    return handleListModels(c)
+    return await handleInteraction(c)
   } catch (error) {
-    return forwardError(c, error)
+    return forwardGeminiError(c, error)
+  }
+})
+
+geminiRoutes.all("/interactions/*", (c) =>
+  forwardGeminiError(
+    c,
+    new GeminiError(
+      "Stored interactions and background jobs are not supported",
+      501,
+    ),
+  ),
+)
+
+// GET /v1beta/models - list available models (Gemini shape)
+geminiRoutes.get("/models", async (c) => {
+  try {
+    return await handleListModels(c)
+  } catch (error) {
+    return forwardGeminiError(c, error)
   }
 })
 
 // POST /v1beta/models/{model}:generateContent | :streamGenerateContent
-// The `{model}:{method}` spec is a single path segment (model ids have no
-// slashes), so it is captured whole and split on the last colon.
-geminiRoutes.post("/models/:spec", async (c) => {
-  const spec = c.req.param("spec")
+// Provider aliases may contain slashes; split the method from the last colon.
+geminiRoutes.post("/models/*", async (c) => {
+  const spec = c.req.path.split("/models/").slice(1).join("/models/")
   const colonIndex = spec.lastIndexOf(":")
   const modelName = colonIndex === -1 ? spec : spec.slice(0, colonIndex)
   const method = colonIndex === -1 ? "" : spec.slice(colonIndex + 1)
-  const decodedModel = decodeURIComponent(modelName)
 
-  if (method !== "generateContent" && method !== "streamGenerateContent") {
+  if (
+    !["generateContent", "streamGenerateContent", "countTokens"].includes(
+      method,
+    )
+  ) {
     return c.json(
       {
         error: {
@@ -43,21 +65,29 @@ geminiRoutes.post("/models/:spec", async (c) => {
   }
 
   try {
+    const decodedModel = decodeURIComponent(modelName)
+    if (method === "countTokens")
+      return await handleCountTokens(c, decodedModel)
     return await handleGenerateContent(
       c,
       decodedModel,
       method === "streamGenerateContent",
     )
   } catch (error) {
-    return forwardError(c, error)
+    return forwardGeminiError(c, error)
   }
 })
 
 // GET /v1beta/models/{model} - single-model lookup
-geminiRoutes.get("/models/:model", (c) => {
+geminiRoutes.get("/models/*", async (c) => {
   try {
-    return handleGetModel(c, decodeURIComponent(c.req.param("model")))
+    return await handleGetModel(
+      c,
+      decodeURIComponent(
+        c.req.path.split("/models/").slice(1).join("/models/"),
+      ),
+    )
   } catch (error) {
-    return forwardError(c, error)
+    return forwardGeminiError(c, error)
   }
 })

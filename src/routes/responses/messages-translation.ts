@@ -216,6 +216,14 @@ export function translateResponsesToMessages(
     ...(metadataUserId ? { metadata: { user_id: metadataUserId } } : {}),
   }
 
+  // Preserve native structured-output enforcement in addition to the text fallback.
+  if (payload.text?.format?.type === "json_schema") {
+    messagesPayload.output_config = {
+      ...messagesPayload.output_config,
+      format: { type: "json_schema", schema: payload.text.format.schema },
+    }
+  }
+
   return {
     compaction: normalized.compaction,
     messagesPayload,

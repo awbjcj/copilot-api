@@ -113,20 +113,20 @@ describe("convertGeminiToMessages", () => {
     ])
   })
 
-  test("drops non-image inline data and keeps the plain string shape", () => {
-    const messages = convertGeminiToMessages({
-      contents: [
-        {
-          role: "user",
-          parts: [
-            { text: "listen" },
-            { inlineData: { mimeType: "audio/wav", data: "QUJD" } },
-          ],
-        },
-      ],
-    })
-
-    expect(messages).toEqual([{ role: "user", content: "listen" }])
+  test("rejects unsupported inline audio", () => {
+    expect(() =>
+      convertGeminiToMessages({
+        contents: [
+          {
+            role: "user",
+            parts: [
+              { text: "listen" },
+              { inlineData: { mimeType: "audio/wav", data: "QUJD" } },
+            ],
+          },
+        ],
+      }),
+    ).toThrow("inline image")
   })
 
   test("converts URL-safe base64 inline data to standard base64", () => {
@@ -159,6 +159,10 @@ describe("convertGeminiToMessages", () => {
     const messages = convertGeminiToMessages({
       contents: [
         {
+          role: "model",
+          parts: [{ functionCall: { name: "read_file", args: {} } }],
+        },
+        {
           role: "user",
           parts: [
             {
@@ -170,7 +174,7 @@ describe("convertGeminiToMessages", () => {
       ],
     })
 
-    expect(messages).toEqual([
+    expect(messages.slice(1)).toEqual([
       {
         role: "tool",
         content: JSON.stringify({ ok: true }),
@@ -221,6 +225,10 @@ describe("convertGeminiToMessages", () => {
     const messages = convertGeminiToMessages({
       contents: [
         {
+          role: "model",
+          parts: [{ functionCall: { name: "get_weather", args: {} } }],
+        },
+        {
           role: "user",
           parts: [
             {
@@ -234,7 +242,7 @@ describe("convertGeminiToMessages", () => {
       ],
     })
 
-    expect(messages[0]).toEqual({
+    expect(messages[1]).toEqual({
       role: "tool",
       content: JSON.stringify({ temp: 20 }),
       tool_call_id: geminiToolCallId("get_weather"),
@@ -502,7 +510,13 @@ describe("chatResponseToGemini", () => {
     const gemini = chatResponseToGemini(response, "gemini-2.5-pro", "resp-2")
 
     expect(gemini.candidates[0].content.parts).toEqual([
-      { functionCall: { name: "get_weather", args: { city: "NYC" } } },
+      {
+        functionCall: {
+          id: "call-1",
+          name: "get_weather",
+          args: { city: "NYC" },
+        },
+      },
     ])
   })
 
@@ -545,7 +559,13 @@ describe("chatResponseToGemini", () => {
         thought: true,
         thoughtSignature: "sig-xyz",
       },
-      { functionCall: { name: "get_weather", args: { city: "NYC" } } },
+      {
+        functionCall: {
+          id: "call-1",
+          name: "get_weather",
+          args: { city: "NYC" },
+        },
+      },
     ])
   })
 
@@ -641,7 +661,7 @@ describe("buildGeminiParts", () => {
     expect(parts).toEqual([
       { text: "reasoning", thought: true, thoughtSignature: "sig" },
       { text: "the answer" },
-      { functionCall: { name: "fn", args: {} } },
+      { functionCall: { id: "c1", name: "fn", args: {} } },
     ])
   })
 })

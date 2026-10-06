@@ -202,7 +202,8 @@ async function getProviderModels(
   }
 }
 
-async function getAggregatedModels(
+/** List enabled Copilot and configured provider models for protocol adapters. */
+export async function getAggregatedModels(
   requestHeaders: Headers,
 ): Promise<Array<ClientModel>> {
   const copilotModels =
