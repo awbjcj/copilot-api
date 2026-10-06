@@ -45,3 +45,15 @@ COPILOT_API_OAUTH_APP=opencode
 ```
 
 Token and proxy variables can be overridden in the same file. Proxy addresses must be reachable from inside the container. Keep the internal port at `4141` so the health check remains valid.
+
+### Rebuild a standalone container from local files
+
+For a gateway started with `docker run`, run this from the repository root:
+
+```sh
+make docker-rebuild COPILOT_CONTAINER=copilot-api
+```
+
+The target force-removes that container and removes its image tag, then builds the repository's Dockerfile with `--pull --no-cache` and starts the replacement. It retains the existing `/data` volume or bind mount, port binding, environment, and startup arguments. Authentication and gateway configuration remain in `/data`. Other container settings use the defaults in `scripts/rebuild-docker.sh`. If the build fails, the gateway stays down and its data mount remains available; restore the container with its original image tag and mount after fixing the build.
+
+Choose the exact existing container name. Compose-managed containers are rejected. If the name does not exist, the target creates `copilot-api:local` with the `copilot-api-data` volume and loopback port `4141`. Run it from the companion backend with `make rebuild-copilot-api COPILOT_CONTAINER=<name>`.

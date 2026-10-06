@@ -47,6 +47,8 @@ Structured output accepts `responseMimeType` plus `responseSchema`/`responseJson
 
 `includeThoughts: false` hides reasoning summaries while retaining opaque signatures needed for follow-up calls. Thinking levels and budgets are constrained by the model and transport; unsupported controls return an error instead of being silently discarded.
 
+Gemini 3 and later use `thinkingLevel` (SDK alias: `thinking_level`). The gateway forwards the selected level as upstream Chat Completions `reasoning_effort` or Responses `reasoning.effort`, without a numeric thinking budget. Numeric `thinkingBudget` is rejected for these models, including external-provider aliases. Legacy Gemini 2.5 budgets remain available when the model advertises budget support and uses Chat Completions. Omit both controls to use the model's default; do not combine a level and a budget. `maxOutputTokens` separately limits total output and does not set the thinking budget.
+
 ## Stateless Interactions
 
 Pass the full history in `input`, using `user_input`, `model_output`, `thought`, `function_call` and `function_result` steps. Include tools, system instructions and generation configuration on every request. Copy returned steps into subsequent history; pair each function result's `call_id` with the returned function call's `id`. Tool requests return `requires_action`.

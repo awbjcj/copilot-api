@@ -96,6 +96,17 @@ export async function dispatchGemini(
     throw new GeminiError(
       `Unsupported thinking level for ${resolved.id}; supported: ${supports.reasoning_effort.join(", ")}`,
     )
+  const geminiVersion = /^gemini-(\d+)(?:[.-]|$)/i.exec(
+    resolved.id.split("/").at(-1) ?? "",
+  )
+  if (
+    payload.thinking_budget !== undefined
+    && geminiVersion
+    && Number(geminiVersion[1]) >= 3
+  )
+    throw new GeminiError(
+      "Gemini 3 and later require thinkingLevel on this gateway; thinkingBudget is only supported for legacy models",
+    )
   if (
     payload.thinking_budget !== undefined
     && !resolved.provider

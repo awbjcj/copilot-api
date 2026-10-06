@@ -576,6 +576,83 @@ describe("routing and runtime contracts", () => {
       ).status,
     ).toBe(400)
   })
+  test.each(["MINIMAL", "LOW", "MEDIUM", "HIGH"])(
+    "forwards SDK thinking level %s without a numeric budget",
+    async (level) => {
+      const response = await post({
+        ...request(),
+        generationConfig: { thinkingConfig: { thinking_level: level } },
+      })
+      expect(response.status).toBe(200)
+      expect(captured).toHaveProperty("reasoning_effort", level.toLowerCase())
+      expect(captured).not.toHaveProperty("thinking_budget")
+    },
+  )
+  test.each(["LOW", "MEDIUM", "HIGH"])(
+    "forwards thinking level %s through Responses without a numeric budget",
+    async (level) => {
+      const response = await post(
+        {
+          ...request(),
+          generationConfig: { thinkingConfig: { thinking_level: level } },
+        },
+        "/models/gpt-test:generateContent",
+      )
+      expect(response.status).toBe(200)
+      expect(captured).toHaveProperty("reasoning.effort", level.toLowerCase())
+      expect(captured).not.toHaveProperty("thinking_budget")
+    },
+  )
+  test.each(["gemini-3.5-flash", "gemini-3.8-flash", "gemini-3.1-pro-preview"])(
+    "rejects numeric thinking budgets for %s even when advertised upstream",
+    async (model) => {
+      state.models!.data[0].id = model
+      state.models!.data[0].capabilities.supports.max_thinking_budget = 8192
+      const response = await post(
+        {
+          ...request(),
+          generationConfig: { thinkingConfig: { thinkingBudget: 4096 } },
+        },
+        `/models/${model}:generateContent`,
+      )
+      expect(response.status).toBe(400)
+      expect((await bodyOf(response)).error.message).toContain("thinkingLevel")
+      expect(transport).toBe("")
+    },
+  )
+  test("rejects numeric thinking budgets for external Gemini 3 aliases", async () => {
+    getConfig().providers = {
+      custom: {
+        type: "openai-compatible",
+        baseUrl: "https://example.com",
+        apiKey: "test",
+        enabled: true,
+      },
+    }
+    const response = await post(
+      {
+        ...request(),
+        generationConfig: { thinkingConfig: { thinkingBudget: 4096 } },
+      },
+      "/models/custom/gemini-3.8-flash:generateContent",
+    )
+    expect(response.status).toBe(400)
+    expect(transport).toBe("")
+  })
+  test("preserves supported legacy Gemini 2.5 thinking budgets", async () => {
+    state.models!.data[0].id = "gemini-2.5-flash"
+    state.models!.data[0].capabilities.supports.max_thinking_budget = 8192
+    const response = await post(
+      {
+        ...request(),
+        generationConfig: { thinkingConfig: { thinkingBudget: 4096 } },
+      },
+      "/models/gemini-2.5-flash:generateContent",
+    )
+    expect(response.status).toBe(200)
+    expect(captured).toHaveProperty("thinking_budget", 4096)
+    expect(captured).not.toHaveProperty("reasoning_effort")
+  })
   test("content filtering remains a safety finish reason", () => {
     expect(
       responsesResultToGemini(

@@ -8,6 +8,18 @@
 
 仓库提供的 Compose 文件使用当前已发布的 `ghcr.io/caozhiyuan/copilot-api:latest` 镜像，无需在用户机器上构建镜像。它将 gateway 状态保存在 `/data`，并以非 root 的 `bun` 用户运行服务。
 
+### 从本地文件重建独立容器
+
+对于使用 `docker run` 启动的 gateway，在仓库根目录执行：
+
+```sh
+make docker-rebuild COPILOT_CONTAINER=copilot-api
+```
+
+该命令强制删除指定容器并删除其镜像标签，然后使用仓库的 Dockerfile 和 `--pull --no-cache` 构建本地代码，再启动新容器。现有 `/data` 卷或绑定挂载、端口映射、环境变量和启动参数会保留，认证和配置继续存储在 `/data` 中。其他容器设置采用 `scripts/rebuild-docker.sh` 的默认值。构建失败时 gateway 保持停止状态，数据挂载仍然保留；修复构建问题后，需要使用原镜像标签和数据挂载恢复容器。
+
+请指定现有容器的准确名称；该命令拒绝替换 Compose 管理的容器。如果名称不存在，则创建 `copilot-api:local` 镜像，使用 `copilot-api-data` 卷和本机回环端口 `4141`。也可以在配套后端仓库执行 `make rebuild-copilot-api COPILOT_CONTAINER=<名称>`。
+
 ### 使用 Docker Compose 快速启动
 
 在仓库根目录执行以下命令。将 `YOUR_GATEWAY_API_KEY` 替换为客户端访问 gateway 时使用的强密钥：
