@@ -7,7 +7,7 @@ import {
   setupCopilotToken,
   stopCopilotRefreshLoop,
 } from "~/lib/token"
-import { state } from "~/lib/state"
+import { state, type State } from "~/lib/state"
 
 type TokenResponse = {
   token: string
@@ -44,8 +44,13 @@ const dependencies: CopilotTokenDependencies = {
   getCopilotToken: getCopilotTokenMock,
   getCopilotUsage: getCopilotUsageMock,
 }
+let originalState: State
+let originalOauthApp: string | undefined
 
 beforeEach(() => {
+  originalState = { ...state }
+  originalOauthApp = process.env.COPILOT_API_OAUTH_APP
+  delete process.env.COPILOT_API_OAUTH_APP
   state.githubToken = "github-token"
   state.copilotToken = undefined
   state.copilotApiUrl = undefined
@@ -63,7 +68,13 @@ beforeEach(() => {
 
 afterEach(() => {
   stopCopilotRefreshLoop()
-  delete process.env.COPILOT_API_OAUTH_APP
+  for (const key of Object.keys(state)) Reflect.deleteProperty(state, key)
+  Object.assign(state, originalState)
+  if (originalOauthApp === undefined) {
+    delete process.env.COPILOT_API_OAUTH_APP
+  } else {
+    process.env.COPILOT_API_OAUTH_APP = originalOauthApp
+  }
 })
 
 test("token exchange endpoint overrides the /user endpoints.api (enterprise seat)", async () => {
