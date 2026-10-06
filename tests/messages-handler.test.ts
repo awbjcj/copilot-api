@@ -1,5 +1,14 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test"
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test"
 import { Hono } from "hono"
+import { createFallbackModel } from "~/lib/provider-model"
 
 import type { AnthropicMessagesPayload } from "~/lib/types/anthropic"
 
@@ -11,11 +20,10 @@ const actualModelsModule = await import("~/lib/models")
 const actualUtilsModule = await import("~/lib/utils")
 const { responsesUtilsDependencies } = await import("~/routes/responses/utils")
 
-const state = {
-  ...actualStateModule.state,
-  tokenBasedBilling: false,
-  verbose: false,
-}
+const { state } = actualStateModule
+const originalTokenBasedBilling = state.tokenBasedBilling
+const originalVerbose = state.verbose
+let scopedMocks: Array<{ mockRestore(): void }> = []
 
 let messagesApiEnabled = true
 let responsesApiWebSocketEnabled = true
@@ -36,7 +44,11 @@ type FlowCallOptions = {
 
 let selectedModel: SelectedModel | undefined
 
-const findEndpointModel = mock((_: string) => selectedModel)
+const findEndpointModel = mock((_: string) =>
+  selectedModel ?
+    { ...createFallbackModel(selectedModel.id), ...selectedModel }
+  : undefined,
+)
 const handleWithMessagesApi = mock(
   (
     _c: unknown,
@@ -59,24 +71,6 @@ const handleWithChatCompletions = mock(
   ) => Promise.resolve(new Response("chat")),
 )
 
-await mock.module("~/lib/state", () => ({
-  ...actualStateModule,
-  state,
-}))
-await mock.module("~/lib/config", () => ({
-  ...actualConfigModule,
-  getClaudeAutoModel: () => claudeAutoModel,
-  isMessagesApiEnabled: () => messagesApiEnabled,
-  isResponsesApiWebSocketEnabled: () => responsesApiWebSocketEnabled,
-  resolveMappedModel: (model: string) => modelMappings[model] ?? model,
-}))
-await mock.module("~/lib/models", () => ({
-  ...actualModelsModule,
-  findEndpointModel,
-}))
-await mock.module("~/lib/utils", () => ({
-  ...actualUtilsModule,
-}))
 const { handleCompletion, handleCompletionPayload, messagesFlowHandlers } =
   await import("~/routes/messages/handler")
 
@@ -99,6 +93,25 @@ const createPayload = (
 })
 
 beforeEach(() => {
+  scopedMocks = [
+    spyOn(actualConfigModule, "getClaudeAutoModel").mockImplementation(
+      () => claudeAutoModel,
+    ),
+    spyOn(actualConfigModule, "isMessagesApiEnabled").mockImplementation(
+      () => messagesApiEnabled,
+    ),
+    spyOn(
+      actualConfigModule,
+      "isResponsesApiWebSocketEnabled",
+    ).mockImplementation(() => responsesApiWebSocketEnabled),
+    spyOn(actualConfigModule, "resolveMappedModel").mockImplementation(
+      (model) => modelMappings[model] ?? model,
+    ),
+    spyOn(actualModelsModule, "findEndpointModel").mockImplementation(
+      findEndpointModel,
+    ),
+  ]
+  state.tokenBasedBilling = false
   state.verbose = false
   messagesApiEnabled = true
   responsesApiWebSocketEnabled = true
@@ -120,6 +133,9 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  for (const scopedMock of scopedMocks) scopedMock.mockRestore()
+  state.tokenBasedBilling = originalTokenBasedBilling
+  state.verbose = originalVerbose
   messagesFlowHandlers.handleWithMessagesApi =
     defaultMessagesFlowHandlers.handleWithMessagesApi
   messagesFlowHandlers.handleWithResponsesApi =

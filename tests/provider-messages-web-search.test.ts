@@ -1,5 +1,14 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test"
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test"
 import { Hono } from "hono"
+import { createFallbackModel } from "~/lib/provider-model"
 
 import type { ResolvedProviderConfig } from "~/lib/config"
 import type {
@@ -19,41 +28,10 @@ let messageApiWebSearchModel: string | undefined
 
 const noopTokenUsageRecorder = () => {}
 const findEndpointModel = mock((model: string) => ({
-  id: model,
+  ...createFallbackModel(model),
   supported_endpoints: ["/v1/messages"],
 }))
-
-await mock.module("~/lib/config", () => ({
-  ...actualConfigModule,
-  getProviderConfig: (name: string) => providerConfigs[name] ?? null,
-  isResponsesApiWebSearchEnabled: () => true,
-  isResponsesApiWebSocketEnabled: () => false,
-  resolveMappedModel: (model: string) => model,
-}))
-
-await mock.module("~/lib/models", () => ({
-  ...actualModelsModule,
-  findEndpointModel,
-}))
-
-await mock.module("~/lib/state", () => ({
-  ...actualStateModule,
-  state: {
-    ...actualStateModule.state,
-    tokenBasedBilling: true,
-    verbose: false,
-  },
-}))
-
-await mock.module("~/lib/token", () => ({
-  ...actualTokenModule,
-  setupCodexToken: async () => {},
-}))
-
-await mock.module("~/lib/token-usage", () => ({
-  ...actualTokenUsageModule,
-  createProviderTokenUsageRecorder: () => noopTokenUsageRecorder,
-}))
+let scopedMocks: Array<{ mockRestore(): void }> = []
 
 const { providerMessageRoutes } = await import(
   "~/routes/provider/messages/route"
@@ -62,11 +40,13 @@ const { messageRoutes } = await import("~/routes/messages/route")
 const { webSearchFlowDependencies } = await import(
   "~/routes/messages/web-search/fulfill"
 )
-const { state } = await import("~/lib/state")
+const { state } = actualStateModule
 const { responsesUtilsDependencies } = await import("~/routes/responses/utils")
 
 const originalCodexAccessToken = state.codexAccessToken
 const originalCodexAccountId = state.codexAccountId
+const originalTokenBasedBilling = state.tokenBasedBilling
+const originalVerbose = state.verbose
 const defaultResponsesUtilsDependencies = { ...responsesUtilsDependencies }
 const originalGetMessageApiWebSearchModel =
   webSearchFlowDependencies.getMessageApiWebSearchModel
@@ -340,6 +320,32 @@ const createCodexMessagesPayload = (
 })
 
 beforeEach(() => {
+  scopedMocks = [
+    spyOn(actualConfigModule, "getProviderConfig").mockImplementation(
+      (name) => providerConfigs[name] ?? null,
+    ),
+    spyOn(actualConfigModule, "isResponsesApiWebSearchEnabled").mockReturnValue(
+      true,
+    ),
+    spyOn(actualConfigModule, "isResponsesApiWebSocketEnabled").mockReturnValue(
+      false,
+    ),
+    spyOn(actualConfigModule, "resolveMappedModel").mockImplementation(
+      (model) => model,
+    ),
+    spyOn(actualModelsModule, "findEndpointModel").mockImplementation(
+      findEndpointModel,
+    ),
+    spyOn(actualTokenModule, "setupCodexToken").mockImplementation(
+      async () => {},
+    ),
+    spyOn(
+      actualTokenUsageModule,
+      "createProviderTokenUsageRecorder",
+    ).mockReturnValue(noopTokenUsageRecorder),
+  ]
+  state.tokenBasedBilling = true
+  state.verbose = false
   providerConfigs = {
     search: {
       name: "search",
@@ -373,9 +379,12 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  for (const scopedMock of scopedMocks) scopedMock.mockRestore()
   ;(globalThis as unknown as { fetch: typeof fetch }).fetch = originalFetch
   state.codexAccessToken = originalCodexAccessToken
   state.codexAccountId = originalCodexAccountId
+  state.tokenBasedBilling = originalTokenBasedBilling
+  state.verbose = originalVerbose
   Object.assign(responsesUtilsDependencies, defaultResponsesUtilsDependencies)
   webSearchFlowDependencies.getMessageApiWebSearchModel =
     originalGetMessageApiWebSearchModel
