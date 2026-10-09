@@ -59,9 +59,9 @@ export async function forwardError(
     })
   }
 
-  consola.error("Error occurred:", error)
-
   if (error instanceof HTTPError) {
+    // Upstream bodies and Response objects can contain echoed private input.
+    consola.error(`Upstream HTTP error (${error.response.status})`)
     if (error.response.status === 429) {
       for (const [name, value] of error.response.headers) {
         const lowerName = name.toLowerCase()
@@ -72,13 +72,6 @@ export async function forwardError(
     }
 
     const errorText = await error.response.text()
-    let errorJson: unknown
-    try {
-      errorJson = JSON.parse(errorText)
-    } catch {
-      errorJson = errorText
-    }
-    consola.error("HTTP error:", errorJson)
     return c.json(
       {
         error: {
@@ -90,6 +83,7 @@ export async function forwardError(
     )
   }
 
+  consola.error("Error occurred:", error)
   return c.json(
     {
       error: {
