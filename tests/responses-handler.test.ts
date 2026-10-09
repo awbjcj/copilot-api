@@ -208,6 +208,157 @@ afterEach(async () => {
   Object.assign(taskTitleDependencies, defaultTaskTitleDependencies)
 })
 
+describe("Responses request validation", () => {
+  test.each(["{", "", '{"model":'])(
+    "returns 400 for malformed JSON %j",
+    async (body) => {
+      const response = await createApp().request("/v1/responses", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+      })
+
+      expect(response.status).toBe(400)
+      expect(await response.json()).toMatchObject({
+        error: { type: "invalid_request_error" },
+      })
+      expect(createResponses).not.toHaveBeenCalled()
+    },
+  )
+
+  test.each([
+    { input: "hello" },
+    { model: null },
+    { model: "" },
+    { model: "   " },
+    { model: 42 },
+    null,
+    [[]],
+    "gpt-test",
+  ])("returns 400 for an invalid model in %j", async (payload) => {
+    const response = await createApp().request("/v1/responses", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({
+      error: { type: "invalid_request_error", param: "model" },
+    })
+    expect(createResponses).not.toHaveBeenCalled()
+  })
+})
+
+describe("native Responses metadata", () => {
+  test("preserves upstream metadata when the request omits it", async () => {
+    const metadata = { trace_id: "upstream-123" }
+    createResponses.mockImplementation((payload) =>
+      Promise.resolve({ ...createResponsesResult(payload.model), metadata }),
+    )
+    const response = await createApp().request("/v1/responses", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "gpt-test", input: "hello" }),
+    })
+
+    expect(response.status).toBe(200)
+    expect(((await response.json()) as ResponsesResult).metadata).toEqual(
+      metadata,
+    )
+  })
+
+  test("keeps upstream JSON errors classified as server errors", async () => {
+    createResponses.mockImplementation(() =>
+      Promise.reject(new SyntaxError("Malformed upstream JSON")),
+    )
+    const response = await createApp().request("/v1/responses", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "gpt-test", input: "hello" }),
+    })
+
+    expect(response.status).toBe(500)
+    expect(createResponses).toHaveBeenCalledTimes(1)
+  })
+
+  const metadataCases: Array<ResponsesResult["metadata"]> = [
+    { trace_id: "request-123" },
+    {},
+    null,
+  ]
+  test.each(metadataCases)(
+    "echoes request metadata %j in a JSON response",
+    async (metadata) => {
+      createResponses.mockImplementation((payload) =>
+        Promise.resolve({
+          ...createResponsesResult(payload.model),
+          metadata: { trace_id: "upstream-value" },
+        }),
+      )
+      const response = await createApp().request("/v1/responses", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model: "gpt-test", input: "hello", metadata }),
+      })
+
+      expect(response.status).toBe(200)
+      expect(((await response.json()) as ResponsesResult).metadata).toEqual(
+        metadata,
+      )
+    },
+  )
+
+  test.each(["response.completed", "response.failed", "response.incomplete"])(
+    "echoes request metadata through %s streams",
+    async (terminalType) => {
+      const metadata = { trace_id: "request-123" }
+      const types = ["response.created", "response.in_progress", terminalType]
+      createResponses.mockImplementation(() =>
+        Promise.resolve(
+          streamChunks(
+            types.map((type, index) => ({
+              event: type,
+              id: `event-${index}`,
+              data: JSON.stringify({
+                type,
+                sequence_number: index,
+                response: createResponsesResult("gpt-test"),
+              }),
+            })),
+          ),
+        ),
+      )
+      const response = await createApp().request("/v1/responses", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "gpt-test",
+          input: "hello",
+          metadata,
+          stream: true,
+        }),
+      })
+
+      expect(response.status).toBe(200)
+      const events = (await response.text())
+        .split("\n")
+        .filter((line) => line.startsWith("data: "))
+        .map(
+          (line) =>
+            JSON.parse(line.slice(6)) as {
+              type: string
+              response: ResponsesResult
+            },
+        )
+      expect(events.map((event) => event.type)).toEqual(types)
+      for (const event of events) {
+        expect(event.response.metadata).toEqual(metadata)
+      }
+    },
+  )
+})
+
 describe("Codex task title model routing on Responses", () => {
   const taskTitlePrompt =
     "Generate a concise, single-line task title of at most 36 characters and under five words where possible."

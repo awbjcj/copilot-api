@@ -36,6 +36,8 @@ import type {
 import { createResponses as createCopilotResponses } from "~/services/copilot/create-responses"
 
 import { handleResponsesViaMessages } from "./messages-handler"
+import { withResponsesMetadata, withResponsesStreamMetadata } from "./metadata"
+import { readResponsesPayload } from "./request"
 import { createStreamIdTracker, fixStreamIds } from "./stream-id-sync"
 import { getCodexTaskTitleModel } from "./task-title"
 import {
@@ -61,7 +63,10 @@ export const responsesHandlerDependencies = {
 }
 
 export const handleResponses = async (c: Context) => {
-  const payload = await c.req.json<ResponsesPayload>()
+  const payload = await readResponsesPayload(c)
+  if (payload instanceof Response) return payload
+  const requestMetadata =
+    payload.metadata ? { ...payload.metadata } : payload.metadata
   const requestedModel = payload.model
   payload.model = responsesHandlerDependencies.resolveMappedModel(payload.model)
   if (payload.model !== requestedModel) {
@@ -252,7 +257,11 @@ export const handleResponses = async (c: Context) => {
           }
 
           const processedData = fixStreamIds(
-            (chunk as { data?: string }).data ?? "",
+            parsedEvent && requestMetadata !== undefined ?
+              JSON.stringify(
+                withResponsesStreamMetadata(parsedEvent, requestMetadata),
+              )
+            : ((chunk as { data?: string }).data ?? ""),
             (chunk as { event?: string }).event,
             idTracker,
           )
@@ -281,7 +290,7 @@ export const handleResponses = async (c: Context) => {
       result.copilot_usage?.total_nano_aiu,
     ),
   })
-  return c.json(result)
+  return c.json(withResponsesMetadata(result, requestMetadata))
 }
 
 const isStreamingRequested = (payload: ResponsesPayload): boolean =>

@@ -156,6 +156,138 @@ afterEach(async () => {
   Reflect.deleteProperty(process.env, DB_PATH_ENV)
 })
 
+describe("provider Responses request validation", () => {
+  test.each(["{", ""])("returns 400 for malformed JSON %j", async (body) => {
+    const response = await createApp().request("/openai/v1/responses", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+    })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({
+      error: { type: "invalid_request_error" },
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  test.each([{ input: "hello" }, { model: null }, { model: "" }, null])(
+    "returns 400 for an invalid model in %j",
+    async (payload) => {
+      const response = await createApp().request("/openai/v1/responses", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      expect(response.status).toBe(400)
+      expect(await response.json()).toMatchObject({
+        error: { type: "invalid_request_error", param: "model" },
+      })
+      expect(fetchMock).not.toHaveBeenCalled()
+    },
+  )
+})
+
+describe("native provider Responses metadata", () => {
+  for (const provider of ["openai", "codex"]) {
+    for (const path of ["/v1/responses", `/${provider}/v1/responses`]) {
+      test.each([false, true])(
+        `echoes metadata for ${provider} at ${path} with stream=%s`,
+        async (stream) => {
+          providerConfig = {
+            ...providerConfig!,
+            name: provider,
+            baseUrl: `https://${provider}.example`,
+          }
+          const metadata = { trace_id: "request-123" }
+          const types = [
+            "response.created",
+            "response.in_progress",
+            "response.completed",
+          ]
+          fetchMock.mockImplementation(() =>
+            Promise.resolve(
+              stream ?
+                new Response(
+                  types
+                    .map(
+                      (type) =>
+                        `event: ${type}\ndata: ${JSON.stringify({
+                          type,
+                          response: createResponsesResult("gpt-test"),
+                        })}\n\n`,
+                    )
+                    .join(""),
+                  { headers: { "content-type": "text/event-stream" } },
+                )
+              : new Response(
+                  JSON.stringify(createResponsesResult("gpt-test")),
+                  {
+                    headers: {
+                      "content-type": "application/json",
+                      "x-request-id": "upstream-123",
+                    },
+                    status: 201,
+                  },
+                ),
+            ),
+          )
+          const originalAccessToken = state.codexAccessToken
+          const originalAccountId = state.codexAccountId
+          const originalWebSocketEnabled =
+            codexResponsesDependencies.isResponsesApiWebSocketEnabled
+          state.codexAccessToken = "synthetic-codex-token"
+          state.codexAccountId = "synthetic-account"
+          codexResponsesDependencies.isResponsesApiWebSocketEnabled = () =>
+            false
+          try {
+            const response = await createApp().request(path, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                model:
+                  path === "/v1/responses" ?
+                    `${provider}/gpt-test`
+                  : "gpt-test",
+                input: "hello",
+                metadata,
+                stream,
+              }),
+            })
+            if (stream) {
+              expect(response.status).toBe(200)
+              const events = (await response.text())
+                .split("\n")
+                .filter((line) => line.startsWith("data: "))
+                .map(
+                  (line) =>
+                    JSON.parse(line.slice(6)) as {
+                      type: string
+                      response: ResponsesResult
+                    },
+                )
+              expect(events.map((event) => event.type)).toEqual(types)
+              for (const event of events) {
+                expect(event.response.metadata).toEqual(metadata)
+              }
+            } else {
+              expect(response.status).toBe(provider === "codex" ? 200 : 201)
+              expect(response.headers.get("x-request-id")).toBe("upstream-123")
+              expect(
+                ((await response.json()) as ResponsesResult).metadata,
+              ).toEqual(metadata)
+            }
+          } finally {
+            state.codexAccessToken = originalAccessToken
+            state.codexAccountId = originalAccountId
+            codexResponsesDependencies.isResponsesApiWebSocketEnabled =
+              originalWebSocketEnabled
+          }
+        },
+      )
+    }
+  }
+})
+
 describe("OpenCode provider Responses forwarding", () => {
   test.each(["codex", "xai"])(
     "preserves PDF input and reasoning for OpenCode requests to %s",

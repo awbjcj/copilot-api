@@ -26,6 +26,10 @@ import {
   filterReasoningForTransport,
 } from "~/routes/responses/utils"
 import { handleResponsesViaMessages } from "~/routes/responses/messages-handler"
+import {
+  withResponsesMetadata,
+  withResponsesStreamMetadata,
+} from "~/routes/responses/metadata"
 import { getCodexTaskTitleModel } from "~/routes/responses/task-title"
 import {
   forwardProviderResponseHeaders,
@@ -63,6 +67,8 @@ export async function handleProviderResponsesForProvider(
   },
 ): Promise<Response> {
   const { payload, provider } = options
+  const requestMetadata =
+    payload.metadata ? { ...payload.metadata } : payload.metadata
   const taskTitleModel = getCodexTaskTitleModel(
     c.req.header("user-agent"),
     payload.input,
@@ -175,12 +181,13 @@ export async function handleProviderResponsesForProvider(
         normalizeCodex: true,
         provider,
         recordUsage,
+        metadata: requestMetadata,
       })
     }
 
     const responseBody = upstreamResponse as ResponsesResult
     recordUsage(normalizeResponsesUsage(responseBody.usage))
-    return c.json(responseBody)
+    return c.json(withResponsesMetadata(responseBody, requestMetadata))
   }
 
   const upstreamResponse = await forwardProviderResponses(
@@ -209,14 +216,22 @@ export async function handleProviderResponsesForProvider(
       normalizeCodex: false,
       provider,
       recordUsage,
+      metadata: requestMetadata,
     })
   }
 
-  const responseBody = (await upstreamResponse
-    .clone()
-    .json()) as ResponsesResult
+  const responseBody = (await (
+    requestMetadata === undefined ?
+      upstreamResponse.clone()
+    : upstreamResponse).json()) as ResponsesResult
   recordUsage(normalizeResponsesUsage(responseBody.usage))
 
+  if (requestMetadata !== undefined) {
+    return createProviderProxyResponse(
+      upstreamResponse,
+      Response.json(withResponsesMetadata(responseBody, requestMetadata)).body,
+    )
+  }
   return createProviderProxyResponse(upstreamResponse)
 }
 
@@ -263,6 +278,7 @@ const streamProviderResponses = async (
     normalizeCodex: boolean
     provider: string
     recordUsage: (usage: UsageTokens) => void
+    metadata: ResponsesPayload["metadata"]
   },
 ): Promise<Response> => {
   const iterator = upstreamResponse[Symbol.asyncIterator]()
@@ -311,10 +327,15 @@ const streamProviderResponses = async (
           normalizeCodex: options.normalizeCodex,
           provider: options.provider,
         })
-        if (event && options.normalizeCodex) {
+        if (
+          event
+          && (options.normalizeCodex || options.metadata !== undefined)
+        ) {
           responseChunk = {
             ...chunk,
-            data: JSON.stringify(event),
+            data: JSON.stringify(
+              withResponsesStreamMetadata(event, options.metadata),
+            ),
             event: event.type,
           }
         }
