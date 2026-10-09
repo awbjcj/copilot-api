@@ -83,12 +83,7 @@ export const createChatCompletions = async (
   logCopilotRateLimits(response.headers)
 
   if (!response.ok) {
-    const errorText = await response.clone().text()
-    consola.error(
-      `Failed to create chat completions (${response.status} ${response.statusText})`,
-      errorText,
-    )
-    consola.error("Rejected chat completions payload:", JSON.stringify(payload))
+    consola.error(`Failed to create chat completions (HTTP ${response.status})`)
     throw new HTTPError("Failed to create chat completions", response)
   }
 

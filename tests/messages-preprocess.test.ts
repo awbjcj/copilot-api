@@ -36,8 +36,8 @@ afterEach(() => {
 })
 
 describe("normalizeSystemMessages", () => {
-  test.each(["gpt-5.4", "codex-mini-latest"])(
-    "preserves inline system messages for %s models",
+  test.each(["gpt-5.4", "codex-mini-latest", "claude-opus-4.6"])(
+    "preserves mid system messages for %s models",
     (model) => {
       const payload: AnthropicMessagesPayload = {
         model,
@@ -76,7 +76,7 @@ describe("normalizeSystemMessages", () => {
 
   test("merges system string content into the previous message", () => {
     const payload: AnthropicMessagesPayload = {
-      model: "claude-opus-4.6",
+      model: "gemini-2.5-pro",
       max_tokens: 128,
       messages: [
         {
@@ -112,7 +112,7 @@ describe("normalizeSystemMessages", () => {
 
   test("moves leading system messages to payload.system and appends block content to the previous array message", () => {
     const payload: AnthropicMessagesPayload = {
-      model: "claude-opus-4.6",
+      model: "gemini-2.5-pro",
       max_tokens: 128,
       messages: [
         {
@@ -164,7 +164,7 @@ describe("normalizeSystemMessages", () => {
 
   test("inserts system text after tool_result blocks in user array content", () => {
     const payload: AnthropicMessagesPayload = {
-      model: "claude-opus-4.6",
+      model: "gemini-2.5-pro",
       max_tokens: 128,
       messages: [
         {
@@ -214,7 +214,7 @@ describe("normalizeSystemMessages", () => {
 
   test("splits SubagentStart hook additional first line into its own content block", () => {
     const payload: AnthropicMessagesPayload = {
-      model: "claude-opus-4.6",
+      model: "gemini-2.5-pro",
       max_tokens: 128,
       messages: [
         {
@@ -253,7 +253,7 @@ describe("normalizeSystemMessages", () => {
 
   test("splits SubagentStart hook additional array block and preserves its cache boundary", () => {
     const payload: AnthropicMessagesPayload = {
-      model: "claude-opus-4.6",
+      model: "gemini-2.5-pro",
       max_tokens: 128,
       messages: [
         {
@@ -1035,6 +1035,31 @@ describe("sanitizeIdeTools", () => {
 })
 
 describe("prepareMessagesApiPayload", () => {
+  test("preserves low effort and output format with adaptive thinking", () => {
+    const outputConfig: AnthropicMessagesPayload["output_config"] = {
+      effort: "low",
+      format: { type: "json_schema", schema: { type: "object" } },
+    }
+    const payload: AnthropicMessagesPayload = {
+      model: "claude-opus-4.8",
+      max_tokens: 128,
+      messages: [{ role: "user", content: "hello" }],
+      output_config: outputConfig,
+    }
+
+    prepareMessagesApiPayload(payload, {
+      capabilities: {
+        supports: {
+          adaptive_thinking: true,
+          reasoning_effort: ["low", "medium", "high", "max"],
+        },
+      },
+    } as never)
+
+    expect(payload.output_config).toEqual(outputConfig)
+    expect(payload.thinking?.type).toBe("adaptive")
+  })
+
   test("strips cache_control scope, filters thinking blocks, and enables adaptive thinking", () => {
     const payload: AnthropicMessagesPayload = {
       model: "gpt-5.4",

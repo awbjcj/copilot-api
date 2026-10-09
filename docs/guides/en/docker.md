@@ -54,6 +54,19 @@ For a gateway started with `docker run`, run this from the repository root:
 make docker-rebuild COPILOT_CONTAINER=copilot-api
 ```
 
-The target force-removes that container and removes its image tag, then builds the repository's Dockerfile with `--pull --no-cache` and starts the replacement. It retains the existing `/data` volume or bind mount, port binding, environment, and startup arguments. Authentication and gateway configuration remain in `/data`. Other container settings use the defaults in `scripts/rebuild-docker.sh`. If the build fails, the gateway stays down and its data mount remains available; restore the container with its original image tag and mount after fixing the build.
+The target builds under a fresh image tag with `--pull --no-cache` while the old
+container keeps running. After the build succeeds, it retains the original
+container under a backup name, stops it, and starts the candidate using the same
+`/data` mount, published ports, environment, and startup arguments. Other new
+container settings use the defaults in `scripts/rebuild-docker.sh`.
+
+The candidate must pass the Dockerfile health check within 240 seconds
+(`REBUILD_HEALTH_TIMEOUT` can override this). Startup or health failure removes
+only the candidate container, restores the original name, and restarts the old
+container if it was previously running. Build failure leaves the old service and
+image untouched. Success promotes the image tag and retains the stopped backup
+container and its image for manual rollback/cleanup. This is process rollback;
+both versions share `/data`, so it does not undo data migrations.
+
 
 Choose the exact existing container name. For a Compose-managed container, the target instead runs `docker compose build --pull --no-cache` and `docker compose up -d --force-recreate` for that service from the repository root, so the image is built locally. If the name does not exist, the target creates `copilot-api:local` with the `copilot-api-data` volume and loopback port `4141`. Run it from the companion backend with `make rebuild-copilot-api COPILOT_CONTAINER=<name>`.

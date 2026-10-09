@@ -17,6 +17,20 @@ beforeAll(() => {
 })
 
 describe("builtin provider model registry", () => {
+  test("registers only Grok 4.7 for xAI with its model capabilities", () => {
+    expect(builtinProviderModelRegistry.getModelIds("xai")).toEqual([
+      "grok-4.7",
+    ])
+    expect(
+      builtinProviderModelRegistry.getModelConfig("xai", "grok-4.7"),
+    ).toMatchObject({
+      contextWindow: 500_000,
+      maxOutputTokens: 500_000,
+      inputModalities: ["text", "image"],
+      reasoningEfforts: ["low", "medium", "high", "xhigh"],
+      defaultReasoningEffort: "high",
+    })
+  })
   test("normalizes provider and model names when resolving model config", () => {
     expect(builtinProviderModelRegistry).toBeInstanceOf(
       BuiltinProviderModelRegistry,
@@ -237,6 +251,7 @@ describe("builtin provider model registry", () => {
       contextWindow: 1_000_000,
       inputModalities: ["text", "image"],
       maxOutputTokens: 393_216,
+      defaultReasoningEffort: "high",
       pricing: {
         cachedInput: 0.2,
         input: 2,
@@ -248,6 +263,7 @@ describe("builtin provider model registry", () => {
         output: 8,
         peakWindows: dashscopePeakWindows,
       },
+      reasoningEfforts: ["low", "high", "max"],
     })
   })
 

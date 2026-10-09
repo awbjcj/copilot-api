@@ -50,6 +50,21 @@ const CODEX_LUNA_PRICING: TokenUsagePricingConfig = {
 
 export class BuiltinProviderModelRegistry {
   private static readonly catalog: BuiltinProviderModelCatalog = {
+    xai: {
+      "grok-4.7": {
+        contextWindow: 500_000,
+        maxOutputTokens: 500_000,
+        inputModalities: ["text", "image"],
+        reasoningEfforts: ["low", "medium", "high", "xhigh"],
+        defaultReasoningEffort: "high",
+        pricing: {
+          tiers: [
+            { cachedInput: 0.5, input: 2, output: 6, maxInputTokens: 200_000 },
+            { cachedInput: 1, input: 4, output: 12 },
+          ],
+        },
+      },
+    },
     codex: {
       "codex-auto-review": { pricing: CODEX_LUNA_PRICING },
       "gpt-reserve": { pricing: CODEX_LUNA_PRICING },
@@ -202,6 +217,7 @@ export class BuiltinProviderModelRegistry {
       },
       "deepseek-v4.1-flash": {
         contextWindow: 1_000_000,
+        defaultReasoningEffort: "high",
         inputModalities: ["text", "image"],
         maxOutputTokens: 393_216,
         pricing: {
@@ -215,9 +231,11 @@ export class BuiltinProviderModelRegistry {
           output: 8,
           peakWindows: dashscopePeakWindows,
         },
+        reasoningEfforts: ["low", "high", "max"],
       },
       "qwen3.8-max": {
         contextWindow: 1_000_000,
+        defaultReasoningEffort: "xhigh",
         inputModalities: ["text", "image"],
         maxOutputTokens: 64_000,
         pricing: {
@@ -227,9 +245,11 @@ export class BuiltinProviderModelRegistry {
           input: 12,
           output: 36,
         },
+        reasoningEfforts: ["low", "medium", "xhigh"],
       },
       "qwen3.8-max-0902": {
         contextWindow: 1_000_000,
+        defaultReasoningEffort: "xhigh",
         inputModalities: ["text", "image"],
         maxOutputTokens: 131_072,
         pricing: {
@@ -239,9 +259,11 @@ export class BuiltinProviderModelRegistry {
           input: 12,
           output: 36,
         },
+        reasoningEfforts: ["low", "medium", "xhigh"],
       },
       "qwen3.8-flash": {
         contextWindow: 1_000_000,
+        defaultReasoningEffort: "xhigh",
         inputModalities: ["text", "image"],
         maxOutputTokens: 131_072,
         pricing: {
@@ -251,9 +273,11 @@ export class BuiltinProviderModelRegistry {
           input: 0.8,
           output: 2.7,
         },
+        reasoningEfforts: ["low", "medium", "xhigh"],
       },
       "qwen3.7-plus": {
         contextWindow: 1_000_000,
+        defaultReasoningEffort: "xhigh",
         inputModalities: ["text", "image"],
         maxOutputTokens: 64_000,
         pricing: {
@@ -276,9 +300,11 @@ export class BuiltinProviderModelRegistry {
             },
           ],
         },
+        reasoningEfforts: ["low", "medium", "xhigh"],
       },
       "kimi/kimi-k3": {
         contextWindow: 1_048_576,
+        defaultReasoningEffort: "max",
         inputModalities: ["text", "image"],
         maxOutputTokens: 64_000,
         pricing: {
@@ -286,6 +312,7 @@ export class BuiltinProviderModelRegistry {
           input: 20,
           output: 100,
         },
+        reasoningEfforts: ["max"],
       },
       "ZHIPU/GLM-5.3": {
         contextWindow: 1_048_576,
@@ -409,3 +436,20 @@ export class BuiltinProviderModelRegistry {
 }
 
 export const builtinProviderModelRegistry = new BuiltinProviderModelRegistry()
+
+export function getBuiltinProviderModelRecords(
+  provider: string,
+): Array<Record<string, unknown>> {
+  return builtinProviderModelRegistry.getModelIds(provider).map((id) => {
+    const config = builtinProviderModelRegistry.getModelConfig(provider, id)
+    return {
+      id,
+      name: id,
+      object: "model",
+      context_window: config?.contextWindow,
+      max_output_tokens: config?.maxOutputTokens,
+      input_modalities: config?.inputModalities,
+      reasoning_efforts: config?.reasoningEfforts,
+    }
+  })
+}

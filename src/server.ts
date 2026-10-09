@@ -12,7 +12,6 @@ import { alphaSearchRoutes } from "./routes/alpha-search/route"
 import { completionRoutes } from "./routes/chat-completions/route"
 import { configRoutes } from "./routes/admin/config/route"
 import { embeddingRoutes } from "./routes/embeddings/route"
-import { geminiRoutes } from "./routes/gemini/route"
 import { imageRoutes } from "./routes/images/route"
 import { messageRoutes } from "./routes/messages/route"
 import { modelRoutes } from "./routes/models/route"
@@ -98,9 +97,6 @@ export function createServer(options: CreateServerOptions = {}): Hono {
 
   // Anthropic compatible endpoints
   server.route("/v1/messages", messageRoutes)
-
-  // Google Gemini (generateContent) compatible endpoints
-  server.route("/v1beta", geminiRoutes)
 
   // Provider scoped endpoints
   server.route("/:provider/v1/messages", providerMessageRoutes)

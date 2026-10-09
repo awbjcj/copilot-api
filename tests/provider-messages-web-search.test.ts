@@ -8,7 +8,6 @@ import {
   test,
 } from "bun:test"
 import { Hono } from "hono"
-import { createFallbackModel } from "~/lib/provider-model"
 
 import type { ResolvedProviderConfig } from "~/lib/config"
 import type {
@@ -16,6 +15,8 @@ import type {
   AnthropicResponse,
 } from "~/lib/types/anthropic"
 import type { ResponsesResult } from "~/lib/types/responses"
+
+import { createFallbackModel } from "~/lib/provider-model"
 
 const actualConfigModule = await import("~/lib/config")
 const actualModelsModule = await import("~/lib/models")
