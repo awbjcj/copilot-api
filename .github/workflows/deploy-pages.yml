@@ -19,6 +19,9 @@ concurrency:
 
 jobs:
   deploy:
+    # Forks do not inherit a configured Pages site. Opt in after configuring
+    # Settings > Pages, or explicitly run this workflow to publish the site.
+    if: ${{ !github.event.repository.fork || vars.ENABLE_GITHUB_PAGES == 'true' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     environment:
       name: github-pages
