@@ -69,4 +69,4 @@ container and its image for manual rollback/cleanup. This is process rollback;
 both versions share `/data`, so it does not undo data migrations.
 
 
-Choose the exact existing container name. Compose-managed containers are rejected. If the name does not exist, the target creates `copilot-api:local` with the `copilot-api-data` volume and loopback port `4141`. Run it from the companion backend with `make rebuild-copilot-api COPILOT_CONTAINER=<name>`.
+Choose the exact existing container name. For a Compose-managed container, the target instead runs `docker compose build --pull --no-cache` and `docker compose up -d --force-recreate` for that service from the repository root, so the image is built locally. If the name does not exist, the target creates `copilot-api:local` with the `copilot-api-data` volume and loopback port `4141`. Run it from the companion backend with `make rebuild-copilot-api COPILOT_CONTAINER=<name>`.

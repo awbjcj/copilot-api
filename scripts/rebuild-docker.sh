@@ -51,8 +51,13 @@ trap 'exit 143' TERM
 docker info --format '{{.ServerVersion}}' >/dev/null
 if docker container inspect "$CONTAINER" >/dev/null 2>&1; then
   if [ -n "$(docker container inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' "$CONTAINER")" ]; then
-    echo "error: $CONTAINER is managed by Compose; this target replaces standalone gateway containers" >&2
-    exit 1
+    SERVICE="$(docker container inspect --format '{{index .Config.Labels "com.docker.compose.service"}}' "$CONTAINER")"
+    echo "==> $CONTAINER is managed by Compose; rebuilding service $SERVICE locally from $PROJECT_ROOT"
+    cd "$PROJECT_ROOT"
+    docker compose build --pull --no-cache "$SERVICE"
+    docker compose up -d --force-recreate "$SERVICE"
+    docker ps --filter "name=^/${CONTAINER}$" --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+    exit 0
   fi
 
   IMAGE="$(docker container inspect --format '{{.Config.Image}}' "$CONTAINER")"
