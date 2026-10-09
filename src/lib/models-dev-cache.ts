@@ -58,9 +58,11 @@ type ModelsDevFetcher = (
 ) => Promise<Response>
 
 interface CatalogSnapshot {
+  catalog: ModelsDevProviderMap
   configs: Record<string, BuiltinProviderModelConfig>
   providerTypes: Record<string, ProviderType>
   records: Array<ModelRecord>
+  modelOutputTokens: Record<string, Record<string, number>>
   selectableProviders: Array<ModelsDevProviderOption>
   selectableProviderModelTypes: Record<string, Record<string, ProviderType>>
   selectableProviderModelApis: Record<string, Record<string, string>>
@@ -385,6 +387,27 @@ function parseSelectableProviders(
   }
 }
 
+function parseModelOutputTokens(
+  data: Record<string, unknown>,
+): CatalogSnapshot["modelOutputTokens"] {
+  const providers = Object.create(null) as CatalogSnapshot["modelOutputTokens"]
+  for (const [providerId, provider] of Object.entries(data)) {
+    if (!isRecord(provider) || !isRecord(provider.models)) continue
+    const models = Object.create(null) as Record<string, number>
+    for (const [modelId, model] of Object.entries(provider.models)) {
+      if (!isRecord(model) || model.status === "deprecated") continue
+      const output = positiveNumber(
+        (model as unknown as ModelsDevModel).limit?.output,
+      )
+      if (output !== undefined && Number.isInteger(output)) {
+        models[modelId] = output
+      }
+    }
+    providers[providerId] = models
+  }
+  return providers
+}
+
 function parseCatalog(data: unknown): CatalogSnapshot {
   const provider = isRecord(data) ? data[OPENCODE_GO] : undefined
   const models = isRecord(provider) ? provider.models : undefined
@@ -440,9 +463,11 @@ function parseCatalog(data: unknown): CatalogSnapshot {
     throw new Error("models.dev response has no valid opencode-go models")
   }
   return {
+    catalog: data as ModelsDevProviderMap,
     configs,
     providerTypes,
     records,
+    modelOutputTokens: parseModelOutputTokens(data as Record<string, unknown>),
     ...parseSelectableProviders(data as Record<string, unknown>),
   }
 }
@@ -523,6 +548,21 @@ export function getModelsDevModelPricing(
   modelId: string,
 ): TokenUsagePricingConfig | undefined {
   return snapshot?.selectableProviderModelPricing[providerId]?.[modelId]
+}
+
+export function getModelsDevModel(
+  providerId: string,
+  modelId: string,
+): ModelsDevModel | undefined {
+  const model = snapshot?.catalog[providerId]?.models?.[modelId]
+  return isRecord(model) ? model : undefined
+}
+
+export function getModelsDevModelMaxOutputTokens(
+  providerId: string,
+  modelId: string,
+): number | undefined {
+  return snapshot?.modelOutputTokens[providerId]?.[modelId]
 }
 
 export async function loadModelsDevProviderOptions(): Promise<

@@ -14,7 +14,8 @@ docker() {
         [ "$SCENARIO" != fresh ]; return
       fi
       case "$4" in
-        *com.docker.compose.project*) [ "$SCENARIO" != compose ] || echo project ;;
+        *com.docker.compose.project*) [[ "$SCENARIO" != compose* ]] || echo project ;;
+        *com.docker.compose.service*) echo gateway ;;
         *com.copilot-api.rebuild.image*) [ "$SCENARIO" != rebuilt ] || echo custom:stable ;;
         *Config.Image*) echo copilot-api:local ;;
         *State.Running*) [ "$SCENARIO" = stopped ] && echo false || echo true ;;
@@ -30,6 +31,7 @@ docker() {
             *) echo healthy ;;
           esac ;;
       esac ;;
+    'compose build') [ "$SCENARIO" != compose-build-failure ] ;;
     'build '*) [ "$SCENARIO" != build-failure ] ;;
     'run '*) [ "$SCENARIO" != start-failure ] ;;
     'tag '*) [ "$SCENARIO" != tag-failure ] ;;
@@ -77,7 +79,7 @@ function runScenario(scenario: string) {
   }
 }
 
-test.each(["build-failure", "compose", "missing-mount"])(
+test.each(["build-failure", "compose-build-failure", "missing-mount"])(
   "%s leaves the original container untouched",
   (scenario) => {
     const result = runScenario(scenario)
@@ -88,6 +90,17 @@ test.each(["build-failure", "compose", "missing-mount"])(
     expect(result.log).not.toContain("stop gateway")
   },
 )
+
+test("Compose rebuilds the owning service before recreating it", () => {
+  const result = runScenario("compose")
+  expect(result.code).toBe(0)
+  expect(result.log).toContain("compose build --pull --no-cache gateway")
+  expect(result.log).toContain("compose up -d --force-recreate gateway")
+  expect(result.log.indexOf("compose build")).toBeLessThan(
+    result.log.indexOf("compose up"),
+  )
+  expect(result.log).not.toContain("container rename")
+})
 
 test.each([
   "start-failure",
