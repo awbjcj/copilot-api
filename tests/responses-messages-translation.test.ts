@@ -338,6 +338,86 @@ describe("Responses Lite to Messages translation", () => {
     ])
   })
 
+  test.each(["system", "developer", "user", "assistant"] as const)(
+    "drops empty text blocks in %s messages while retaining nonempty text",
+    (role) => {
+      const content = [
+        { type: "input_text" as const, text: "" },
+        { type: "input_text" as const, text: "Keep this text" },
+        { type: "output_text" as const, text: "" },
+        { type: "text" as const, text: "" },
+      ]
+      const input =
+        role === "assistant" ?
+          [
+            { role: "user" as const, content: "Hello" },
+            { role, content },
+          ]
+        : [
+            { role, content },
+            { role: "user" as const, content: "Hello" },
+          ]
+      const result = translate({ input })
+      const system = result.messagesPayload.system
+      const translated: Array<{ type: string; text?: string }> =
+        typeof system === "string" ? [] : [...(system ?? [])]
+      for (const message of result.messagesPayload.messages) {
+        if (Array.isArray(message.content)) translated.push(...message.content)
+      }
+      expect(
+        translated.filter(
+          (block) => block.type === "text" && block.text === "",
+        ),
+      ).toEqual([])
+      expect(
+        translated.filter(
+          (block) => block.type === "text" && block.text === "Keep this text",
+        ),
+      ).toHaveLength(1)
+      expect(content).toHaveLength(4)
+    },
+  )
+
+  test("omits an empty assistant text item before a tool call", () => {
+    const result = translate({
+      input: [
+        { role: "user", content: "Look up alpha." },
+        { role: "assistant", content: [{ type: "output_text", text: "" }] },
+        {
+          type: "function_call",
+          call_id: "call-empty-text",
+          name: "lookup",
+          arguments: '{"key":"alpha"}',
+        },
+      ],
+    })
+    expect(result.messagesPayload.messages).toHaveLength(2)
+    expect(result.messagesPayload.messages[1]).toEqual({
+      role: "assistant",
+      content: [
+        {
+          type: "tool_use",
+          id: "call-empty-text",
+          name: "lookup",
+          input: { key: "alpha" },
+        },
+      ],
+    })
+  })
+
+  test.each(["system", "developer", "user", "assistant"] as const)(
+    "still rejects missing text in %s messages",
+    (role) => {
+      const input = [
+        { role, content: [{ type: "input_text" }] },
+        { role: "user", content: "Hello" },
+      ] as ResponsesPayload["input"]
+      expect(() => translate({ input })).toThrow(
+        "message.content[0].text is required",
+      )
+    },
+  )
+
   test("marks the final user message even when a thinking block trails", () => {
     const result = translate({
       input: [

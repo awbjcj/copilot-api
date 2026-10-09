@@ -864,8 +864,10 @@ function translateUserContent(
       `${path} must be text or an array`,
     )
   }
-  return value.map((part, index) =>
-    translateUserContentPart(part, `${path}[${index}]`),
+  return value.flatMap((part, index) =>
+    isEmptyTextContentPart(part) ?
+      []
+    : [translateUserContentPart(part, `${path}[${index}]`)],
   )
 }
 
@@ -882,7 +884,8 @@ function translateAssistantContent(
       `${path} must be text or an array`,
     )
   }
-  return value.map((part, index) => {
+  return value.flatMap((part, index) => {
+    if (isEmptyTextContentPart(part)) return []
     if (!isRecord(part)) {
       throw new ResponsesMessagesTranslationError(
         `${path}[${index}] must be an object`,
@@ -894,10 +897,12 @@ function translateAssistantContent(
         `${path}[${index}] has unsupported assistant content type '${type ?? "unknown"}'`,
       )
     }
-    return {
-      type: "text" as const,
-      text: requireStringField(part, "text", `${path}[${index}]`),
-    }
+    return [
+      {
+        type: "text" as const,
+        text: requireStringField(part, "text", `${path}[${index}]`),
+      },
+    ]
   })
 }
 
@@ -910,7 +915,8 @@ function translateSystemContent(value: unknown, path: string): string {
     )
   }
   return value
-    .map((part, index) => {
+    .flatMap((part, index) => {
+      if (isEmptyTextContentPart(part)) return []
       if (!isRecord(part)) {
         throw new ResponsesMessagesTranslationError(
           `${path}[${index}] must be an object`,
@@ -922,7 +928,7 @@ function translateSystemContent(value: unknown, path: string): string {
           `${path}[${index}] has unsupported system content type '${type ?? "unknown"}'`,
         )
       }
-      return requireStringField(part, "text", `${path}[${index}]`)
+      return [requireStringField(part, "text", `${path}[${index}]`)]
     })
     .join("\n\n")
 }
