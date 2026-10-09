@@ -71,11 +71,11 @@ test.each([
 )
 
 test.each([
-  ["end_turn", "response.completed"],
-  ["max_tokens", "response.incomplete"],
-])(
-  "preserves structured stream output on %s",
-  async (stopReason, terminalType) => {
+  { stopReason: "end_turn", terminalType: "response.completed" },
+  { stopReason: "max_tokens", terminalType: "response.incomplete" },
+] as const)(
+  "preserves structured stream output on %j",
+  async ({ stopReason, terminalType }) => {
     const context = translateResponsesToMessages(
       { model: upstream.model, input: "Return ok true", text: schemaFormat },
       { model: upstream.model },
