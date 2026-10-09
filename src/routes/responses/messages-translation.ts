@@ -351,6 +351,7 @@ export function createMessagesBackedResponsesResult(options: {
     tool_choice: context.originalPayload.tool_choice ?? "auto",
     tools: context.originalPayload.tools ?? [],
     top_p: context.originalPayload.top_p ?? null,
+    text: context.originalPayload.text ?? null,
   }
 }
 

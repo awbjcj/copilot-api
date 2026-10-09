@@ -79,6 +79,7 @@ interface TranslationState {
   messageStopped: boolean
   model: string
   nextOutputIndex: number
+  output: Array<ResponseOutputItem>
   outputText: string
   responseId: string
   sequence: number
@@ -296,7 +297,7 @@ export function responsesResultToStreamEvents(
         result.status === "incomplete" ? "response.incomplete"
         : result.status === "failed" ? "response.failed"
         : "response.completed",
-      response: { ...result, output: [] },
+      response: result,
       copilot_usage: result.copilot_usage,
     }),
   )
@@ -317,6 +318,7 @@ function createTranslationState(
     messageStopped: false,
     model: context.publicModel,
     nextOutputIndex: 0,
+    output: [],
     outputText: "",
     responseId: `resp_${Date.now().toString(36)}`,
     sequence: 0,
@@ -776,6 +778,7 @@ function addOutput<T extends ResponseOutputItem>(
 ): StreamOutputState<T> {
   const outputIndex = state.nextOutputIndex
   state.nextOutputIndex += 1
+  state.output.push(item)
   return { item, outputIndex, done: false }
 }
 
@@ -803,7 +806,7 @@ function createTerminalEvent(state: TranslationState): ResponseStreamEvent {
     context: state.context,
     createdAt: state.createdAt,
     id: state.responseId,
-    output: [],
+    output: state.output,
     outputText: state.context.compaction ? "" : state.outputText,
     status: finish.status,
     incompleteReason: finish.incompleteReason,

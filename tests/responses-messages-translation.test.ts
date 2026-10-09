@@ -1695,7 +1695,14 @@ describe("Responses Lite to Messages translation", () => {
     const completed = events.at(-1)
     expect(completed?.type).toBe("response.completed")
     if (completed?.type === "response.completed") {
-      expect(completed.response.output).toEqual([])
+      expect(completed.response.output).toMatchObject([
+        {
+          type: "custom_tool_call",
+          name: "apply_patch",
+          input: "*** Begin Patch",
+          status: "completed",
+        },
+      ])
     }
   })
 
@@ -1834,7 +1841,7 @@ describe("Responses Lite to Messages translation", () => {
     }
   })
 
-  test("streams initial custom tool input without terminal output", async () => {
+  test("retains initial custom tool input in terminal output", async () => {
     const translation = translate({
       input: "Patch it",
       tools: [{ type: "custom", name: "apply_patch" }],
@@ -1884,7 +1891,14 @@ describe("Responses Lite to Messages translation", () => {
     const completed = events.at(-1)
     expect(completed?.type).toBe("response.completed")
     if (completed?.type === "response.completed") {
-      expect(completed.response.output).toEqual([])
+      expect(completed.response.output).toMatchObject([
+        {
+          type: "custom_tool_call",
+          name: "apply_patch",
+          input: "from start",
+          status: "completed",
+        },
+      ])
     }
   })
 
@@ -2040,7 +2054,7 @@ describe("Responses Lite to Messages translation", () => {
     }
   })
 
-  test("omits output from synthesized terminal stream events", () => {
+  test("retains output in synthesized terminal stream events", () => {
     const translation = translate({ input: "hello", stream: true })
     const result = translateAnthropicToResponses(
       {
@@ -2063,7 +2077,13 @@ describe("Responses Lite to Messages translation", () => {
     const completed = events.at(-1)
     expect(completed?.type).toBe("response.completed")
     if (completed?.type === "response.completed") {
-      expect(completed.response.output).toEqual([])
+      expect(completed.response.output).toMatchObject([
+        {
+          type: "message",
+          status: "completed",
+          content: [{ type: "output_text", text: "hello" }],
+        },
+      ])
     }
   })
 

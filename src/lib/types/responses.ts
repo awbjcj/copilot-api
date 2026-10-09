@@ -293,6 +293,7 @@ export interface ResponsesResult {
   tool_choice: unknown
   tools: Array<Tool>
   top_p: number | null
+  text?: ResponsesTextConfig | null
 }
 
 export interface CopilotUsage {
