@@ -61,21 +61,9 @@ export const responsesHandlerDependencies = {
 }
 
 export const handleResponses = async (c: Context) => {
-  return handleResponsesPayload(c, await c.req.json<ResponsesPayload>())
-}
-
-/** Dispatch a decoded Responses request using the same capabilities as the HTTP route. */
-export const handleResponsesPayload = async (
-  c: Context,
-  payload: ResponsesPayload,
-  options: { skipModelMapping?: boolean } = {},
-) => {
+  const payload = await c.req.json<ResponsesPayload>()
   const requestedModel = payload.model
-  if (!options.skipModelMapping) {
-    payload.model = responsesHandlerDependencies.resolveMappedModel(
-      payload.model,
-    )
-  }
+  payload.model = responsesHandlerDependencies.resolveMappedModel(payload.model)
   if (payload.model !== requestedModel) {
     consola.debug(
       `Resolved model mapping: ${requestedModel} -> ${payload.model}`,

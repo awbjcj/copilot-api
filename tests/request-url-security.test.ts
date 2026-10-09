@@ -17,7 +17,7 @@ afterEach(() => {
   globalThis.fetch = originalFetch
 })
 
-test("request logs omit query keys while query authentication still works", async () => {
+test("request logs redact retired query keys even when authentication fails", async () => {
   const logs: Array<string> = []
   const app = new Hono()
   app.use(createRequestLogger((message) => logs.push(message)))
@@ -27,7 +27,7 @@ test("request logs omit query keys while query authentication still works", asyn
   const response = await app.request(
     "/v1beta/models?key=secret-one&%6bey=secret-two&alt=sse",
   )
-  expect(response.status).toBe(200)
+  expect(response.status).toBe(401)
   expect(logs).toHaveLength(2)
   for (const log of logs) {
     expect(log).toContain("/v1beta/models?alt=sse")

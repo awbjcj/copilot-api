@@ -113,7 +113,7 @@ describe("request auth middleware", () => {
     expect(await response.json()).toEqual({ ok: true, scope: "admin" })
   })
 
-  test("accepts gemini x-goog-api-key header", async () => {
+  test("rejects retired gemini x-goog-api-key authentication", async () => {
     const app = createApp()
     const response = await app.request("/models", {
       headers: {
@@ -121,15 +121,13 @@ describe("request auth middleware", () => {
       },
     })
 
-    expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ ok: true, scope: "default" })
+    expect(response.status).toBe(401)
   })
 
-  test("accepts gemini key query parameter", async () => {
+  test("rejects retired gemini key query authentication", async () => {
     const app = createApp()
     const response = await app.request("/models?key=regular-key")
 
-    expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ ok: true, scope: "default" })
+    expect(response.status).toBe(401)
   })
 })

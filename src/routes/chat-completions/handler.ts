@@ -26,18 +26,9 @@ import { createChatCompletions } from "~/services/copilot/create-chat-completion
 const logger = createHandlerLogger("chat-completions-handler")
 
 export async function handleCompletion(c: Context) {
-  return handleCompletionPayload(c, await c.req.json<ChatCompletionsPayload>())
-}
-
-/** Dispatch an already decoded request, retaining provider routing and cancellation. */
-export async function handleCompletionPayload(
-  c: Context,
-  payload: ChatCompletionsPayload,
-  options: { skipModelMapping?: boolean } = {},
-) {
+  let payload = await c.req.json<ChatCompletionsPayload>()
   const requestedModel = payload.model
-  if (!options.skipModelMapping)
-    payload.model = resolveMappedModel(payload.model)
+  payload.model = resolveMappedModel(payload.model)
   if (payload.model !== requestedModel) {
     consola.debug(
       `Resolved model mapping: ${requestedModel} -> ${payload.model}`,

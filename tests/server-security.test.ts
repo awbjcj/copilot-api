@@ -11,6 +11,24 @@ import {
 } from "~/lib/server-host"
 import { createServer } from "~/server"
 
+test("retired native Gemini routes return 404", async () => {
+  const app = createServer({ getApiKeys: () => [] })
+  for (const path of [
+    "/v1beta/models",
+    "/v1beta/models/gemini-3.5-flash:generateContent",
+    "/v1beta/models/gemini-3.5-flash:streamGenerateContent",
+    "/v1beta/models/gemini-3.5-flash:countTokens",
+    "/v1beta/interactions",
+  ]) {
+    const response = await app.request(path, {
+      method: path === "/v1beta/models" ? "GET" : "POST",
+      headers: { "content-type": "application/json" },
+      ...(path === "/v1beta/models" ? {} : { body: "{}" }),
+    })
+    expect(response.status).toBe(404)
+  }
+})
+
 describe("server host security", () => {
   test("recognizes explicit loopback hosts", () => {
     expect(DEFAULT_SERVER_HOST).toBe("127.0.0.1")
