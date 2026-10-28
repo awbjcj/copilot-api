@@ -2826,6 +2826,48 @@ describe("model routes", () => {
     })
   })
 
+  test.each([false, true])(
+    "disables effort updates for synthesized models while preserving catalog aliases (full catalog=%j)",
+    async (fullCatalog) => {
+      enableCodexCatalog()
+      codexCatalogModels[0].supports_reasoning_effort_updates = true
+      const copilotModels = createCopilotModels(["claude-sonnet-4.6"])
+      copilotModels.data[0].supported_endpoints = ["/v1/messages"]
+      state.models = copilotModels
+      enabledProviders.push("custom")
+      providerConfigs.custom = {
+        ...createProviderConfig("custom", "https://custom.example"),
+        type: "openai-responses",
+        models: { "gpt-native": {} },
+      }
+
+      const response = await createApp().request(
+        "/v1/models?client_version=0.165.0",
+        {
+          headers: {
+            "user-agent": "codex-cli/0.165.0",
+            ...(fullCatalog ? { "x-full-model-catalog": "true" } : {}),
+          },
+        },
+      )
+
+      expect(response.status).toBe(200)
+      const body = (await response.json()) as CodexModelsResponse
+      for (const slug of [
+        "gpt-native",
+        "codex/gpt-native",
+        "custom/gpt-native",
+      ]) {
+        expect(body.models.find((model) => model.slug === slug)).toMatchObject({
+          supports_reasoning_effort_updates: true,
+        })
+      }
+      expect(
+        body.models.find((model) => model.slug === "claude-sonnet-4-6"),
+      ).toMatchObject({ supports_reasoning_effort_updates: false })
+    },
+  )
+
   test("merges Responses-backed Copilot models into the Codex catalog", async () => {
     const copilotModels = createCopilotModels([
       "gpt-responses-http",
