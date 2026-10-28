@@ -560,6 +560,11 @@ const en: Locale = {
         description:
           'Override effort per model; an explicit request value takes precedence.',
       },
+      noEncryptedOutputModels: {
+        label: 'Models without encrypted output',
+        description:
+          'JSON array of Copilot model IDs, matched exactly after model mapping. Skip requesting encrypted output for listed models; the default [] applies no restrictions.',
+      },
       extraPrompts: {
         label: 'Extra model prompts',
         description: 'Append system prompts per model using a JSON object.',

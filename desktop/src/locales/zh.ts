@@ -522,6 +522,11 @@ const zh: Locale = {
         label: '模型默认推理强度',
         description: '按模型覆盖默认 effort；请求中明确指定的值优先。',
       },
+      noEncryptedOutputModels: {
+        label: '禁用输出加密的模型',
+        description:
+          'Copilot 模型 ID 的 JSON 数组，按映射后的模型名精确匹配。名单内模型不请求输出加密内容，默认 [] 不限制。',
+      },
       extraPrompts: {
         label: '模型额外提示词',
         description: '按模型追加 system prompt，使用 JSON 对象。',
