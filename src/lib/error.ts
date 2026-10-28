@@ -64,7 +64,12 @@ export async function forwardError(
   if (error instanceof HTTPError) {
     for (const [name, value] of error.response.headers) {
       const lowerName = name.toLowerCase()
-      if (lowerName === "retry-after" || lowerName.startsWith("x-")) {
+      if (
+        lowerName === "retry-after"
+        || lowerName === "x-request-id"
+        || lowerName === "x-oai-request-id"
+        || (error.response.status === 429 && lowerName.startsWith("x-"))
+      ) {
         c.header(name, value)
       }
     }

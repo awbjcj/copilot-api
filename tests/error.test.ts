@@ -61,6 +61,7 @@ describe("upstream error forwarding", () => {
           headers: {
             "retry-after": "12",
             "x-request-id": "req-123",
+            "x-oai-request-id": "oai-req-123",
             "set-cookie": "private=value",
           },
         }),
@@ -69,10 +70,29 @@ describe("upstream error forwarding", () => {
       expect(response.status).toBe(status)
       expect(response.headers.get("retry-after")).toBe("12")
       expect(response.headers.get("x-request-id")).toBe("req-123")
+      expect(response.headers.get("x-oai-request-id")).toBe("oai-req-123")
       expect(response.headers.get("set-cookie")).toBeNull()
       expect(await response.json()).toEqual(body)
     },
   )
+
+  test("keeps private upstream headers out of authentication errors", async () => {
+    const response = await forwardHttp(
+      new Response("upstream denied", {
+        status: 401,
+        headers: {
+          "set-cookie": "upstream-session=secret; Path=/",
+          "www-authenticate": "Bearer realm=upstream",
+          "x-upstream-private": "do-not-forward",
+        },
+      }),
+    )
+
+    expect(response.status).toBe(401)
+    expect(response.headers.get("set-cookie")).toBeNull()
+    expect(response.headers.get("www-authenticate")).toBeNull()
+    expect(response.headers.get("x-upstream-private")).toBeNull()
+  })
 
   test("preserves HTTP-date retry advice", async () => {
     const retryAfter = "Wed, 01 Jan 2031 00:00:00 GMT"
