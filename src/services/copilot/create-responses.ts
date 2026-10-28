@@ -19,7 +19,10 @@ import {
   prepareInteractionHeaders,
 } from "~/lib/api-config"
 import { COMPACT_REQUEST, type CompactType } from "~/lib/compact"
-import { getUpstreamTransportConfig } from "~/lib/config"
+import {
+  getUpstreamTransportConfig,
+  isOutputEncryptedContentDisabled,
+} from "~/lib/config"
 import {
   logCopilotQuotaSnapshots,
   logCopilotRateLimits,
@@ -108,7 +111,12 @@ export const createResponses = async (
 const omitUnsupportedCopilotInclude = (
   payload: ResponsesPayload,
 ): ResponsesPayload => {
-  if (!payload.include?.includes("output.encrypted_content")) return payload
+  if (
+    !payload.include?.includes("output.encrypted_content")
+    || !isOutputEncryptedContentDisabled(payload.model)
+  ) {
+    return payload
+  }
 
   const include = payload.include.filter(
     (item) => item !== "output.encrypted_content",
