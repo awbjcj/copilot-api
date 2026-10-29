@@ -24,7 +24,12 @@ type Transform = (editor: { add: (source: ProviderSource) => void }) => void
 const plugin = modelsPlugin as {
   id: string
   setup: (ctx: {
-    options?: { baseURL?: string; apiKey?: string; refreshIntervalMs?: number }
+    options?: {
+      baseURL?: string
+      apiKey?: string
+      refreshIntervalMs?: number
+      imageModels?: Array<{ id: string; name?: string }>
+    }
     provider: {
       transform: (callback: Transform) => Promise<void>
       reload: () => Promise<void>
@@ -45,6 +50,22 @@ const model = (id: string): OpencodeModel => ({
   status: "active",
   enabled: true,
   limit: { context: 200_000, output: 32_000 },
+})
+
+const imageModel = (id: string, name: string): OpencodeModel => ({
+  id,
+  modelID: id,
+  providerID: "local",
+  name,
+  family: "gpt-image",
+  package: "@opencode/ai/providers/openai/responses",
+  capabilities: { tools: false, input: ["text", "image"], output: ["image"] },
+  variants: [],
+  time: { released: 0 },
+  cost: [{ input: 0, output: 0, cache: { read: 0, write: 0 } }],
+  status: "active",
+  enabled: true,
+  limit: { context: 0, output: 0 },
 })
 
 const originalFetch = globalThis.fetch
@@ -151,7 +172,10 @@ describe("OpenCode v2 model discovery plugin", () => {
         compaction: { type: "native" },
       },
     })
-    expect(result.source?.models[0]).toEqual(model("first"))
+    expect(result.source?.models).toEqual([
+      model("first"),
+      imageModel("codex/gpt-image-2", "GPT Image 2"),
+    ])
     const [url, init] = (
       fetchMock.mock.calls as unknown as Array<[string, RequestInit]>
     )[0]
@@ -163,6 +187,38 @@ describe("OpenCode v2 model discovery plugin", () => {
     expect(intervalMock).toHaveBeenCalledWith(expect.any(Function), 120_000)
     result.cleanup?.()
     expect(clearMock).toHaveBeenCalledWith(timer)
+  })
+
+  test("keeps a gateway-listed image model instead of adding a duplicate", async () => {
+    const listed = {
+      ...model("codex/gpt-image-2"),
+      name: "Upstream Image",
+      capabilities: { tools: false, input: ["text"], output: ["image"] },
+    }
+    fetchMock.mockImplementationOnce(() =>
+      Promise.resolve(Response.json({ data: [listed] })),
+    )
+    const result = await createPlugin({ refreshIntervalMs: 0 })
+    expect(result.source?.models).toEqual([listed])
+  })
+
+  test("accepts custom image models and allows disabling them", async () => {
+    const custom = await createPlugin({
+      refreshIntervalMs: 0,
+      imageModels: [{ id: "codex/custom-image" }],
+    })
+    expect(custom.source?.models.map((entry) => entry.id)).toEqual([
+      "first",
+      "codex/custom-image",
+    ])
+    expect(custom.source?.models[1].name).toBe("codex/custom-image")
+    custom.cleanup?.()
+
+    const disabled = await createPlugin({
+      refreshIntervalMs: 0,
+      imageModels: [],
+    })
+    expect(disabled.source?.models).toEqual([model("first")])
   })
 
   test("uses the same environment key as Codex and trims the gateway URL", async () => {
@@ -217,14 +273,19 @@ describe("OpenCode v2 model discovery plugin", () => {
     )
     tick?.()
     await waitFor(() => result.reload.mock.calls.length === 1)
-    expect(result.source?.models).toEqual([model("second")])
+    expect(result.source?.models).toEqual([
+      model("second"),
+      imageModel("codex/gpt-image-2", "GPT Image 2"),
+    ])
     expect(result.source?.info.settings.compaction).toEqual({ type: "native" })
     fetchMock.mockImplementationOnce(() =>
       Promise.resolve(Response.json({ data: [] })),
     )
     tick?.()
     await waitFor(() => result.reload.mock.calls.length === 2)
-    expect(result.source?.models).toEqual([])
+    expect(result.source?.models).toEqual([
+      imageModel("codex/gpt-image-2", "GPT Image 2"),
+    ])
     expect(result.source?.info.settings.compaction).toEqual({ type: "native" })
     result.cleanup?.()
   })
@@ -239,7 +300,10 @@ describe("OpenCode v2 model discovery plugin", () => {
     fetchMock.mockImplementationOnce(fail)
     tick?.()
     await waitFor(() => warnMock.mock.calls.length === 1)
-    expect(result.source?.models).toEqual([model("first")])
+    expect(result.source?.models).toEqual([
+      model("first"),
+      imageModel("codex/gpt-image-2", "GPT Image 2"),
+    ])
     expect(result.reload).not.toHaveBeenCalled()
     fetchMock.mockImplementationOnce(() =>
       Promise.resolve(Response.json({ data: [model("recovered")] })),
