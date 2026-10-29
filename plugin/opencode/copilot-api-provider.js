@@ -1,5 +1,8 @@
 const providerID = "local"
 const responsesPackage = "@opencode/ai/providers/openai/responses"
+// Image models must use an image-capable provider package; the Responses
+// package cannot call an images API.
+const imagesPackage = "@opencode/ai/providers/openai/images"
 
 // Image models the gateway can serve but does not advertise in its chat model
 // catalog. OpenCode only registers its image_generate tool while some model
@@ -11,7 +14,8 @@ const buildImageModel = (model) => ({
   id: model.id,
   modelID: model.id,
   providerID,
-  package: responsesPackage,
+  package: imagesPackage,
+  type: "image",
   name: model.name ?? model.id,
   family: "gpt-image",
   status: "active",

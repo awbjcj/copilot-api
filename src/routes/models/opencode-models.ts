@@ -34,9 +34,10 @@ export interface OpencodeModel {
   id: string
   modelID: string
   providerID: string
+  type?: "chat" | "image" | "decision"
   name: string
   family?: string
-  package: typeof RESPONSES_PACKAGE
+  package: string
   capabilities: { tools: boolean; input: Array<string>; output: Array<string> }
   variants: Array<{ id: string; body: Record<string, unknown> }>
   time: { released: number }
