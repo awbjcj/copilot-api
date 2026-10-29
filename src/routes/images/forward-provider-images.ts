@@ -7,6 +7,7 @@ import {
   createProviderProxyResponse,
   forwardProviderImages,
 } from "~/services/providers/provider-proxy"
+import { ensureImageResponseB64Json } from "~/services/xai/images"
 
 export interface ProviderImagesForwardLogContext {
   logger: ConsolaInstance
@@ -53,4 +54,36 @@ export async function forwardProviderImagesWithLogging(
     statusCode: upstreamResponse.status,
   })
   return createProviderProxyResponse(upstreamResponse)
+}
+
+/** Forwards translated xAI requests and normalizes OpenAI-compatible output. */
+export async function forwardXaiImagesWithLogging(
+  providerConfig: ResolvedProviderConfig,
+  request: Request,
+  operation: CodexImagesOperation,
+  payload: Record<string, unknown>,
+  { logger, provider }: ProviderImagesForwardLogContext,
+): Promise<Response> {
+  const upstreamRequest = new Request(request.url, {
+    body: JSON.stringify(payload),
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+    },
+    method: "POST",
+    signal: request.signal,
+  })
+  const upstreamResponse = await forwardProviderImagesWithLogging(
+    providerConfig,
+    upstreamRequest,
+    operation,
+    { logger, provider },
+  )
+  return await ensureImageResponseB64Json(upstreamResponse, undefined, {
+    clientSignal: request.signal,
+    onImageUrl: (url) => {
+      logger.info("images.xai.output.url", JSON.stringify({ operation, url }))
+    },
+    responseFormat: payload.response_format === "url" ? "url" : "b64_json",
+  })
 }

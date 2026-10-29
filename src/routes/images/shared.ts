@@ -10,12 +10,19 @@ import {
   getImageEditModel,
   getImageGenerationModel,
 } from "~/lib/xai-image-model"
-import { forwardProviderImagesWithLogging } from "~/routes/images/forward-provider-images"
+import {
+  forwardProviderImagesWithLogging,
+  forwardXaiImagesWithLogging,
+} from "~/routes/images/forward-provider-images"
 import {
   forwardCodexImages,
   type CodexImagesOperation,
 } from "~/services/codex/images"
 import { createProviderProxyResponse } from "~/services/providers/provider-proxy"
+import {
+  translateXaiImageEditJson,
+  translateXaiImageGeneration,
+} from "~/services/xai/images"
 
 export const logger = createHandlerLogger("images-handler")
 
@@ -234,6 +241,20 @@ export async function routeImagesRequest(
       )
       if (providerConfig.name === "codex") {
         return await handleCodexImages(c, operation, providerConfig, request)
+      }
+      if (providerConfig.name === "xai") {
+        const payload: unknown = await request.json()
+        const translated =
+          operation === "edits" ?
+            translateXaiImageEditJson(payload, providerModelAlias.model)
+          : translateXaiImageGeneration(payload, providerModelAlias.model)
+        return await forwardXaiImagesWithLogging(
+          providerConfig,
+          request,
+          operation,
+          translated,
+          { logger, provider: providerModelAlias.provider },
+        )
       }
 
       return await forwardProviderImagesWithLogging(

@@ -1,11 +1,9 @@
 import type { Context } from "hono"
 
-import type { ResolvedProviderConfig } from "~/lib/config"
-import { forwardProviderImagesWithLogging } from "~/routes/images/forward-provider-images"
+import { forwardXaiImagesWithLogging } from "~/routes/images/forward-provider-images"
 import { imageRouteDependencies, logger } from "~/routes/images/shared"
 import type { CodexImagesOperation } from "~/services/codex/images"
 import {
-  ensureImageResponseB64Json,
   translateXaiImageEditJson,
   translateXaiImageGeneration,
   XaiImagesRequestError,
@@ -61,37 +59,13 @@ async function forwardTranslatedXaiImages(
     )
   }
 
-  return await forwardXaiImages(providerConfig, c.req.raw, operation, payload)
-}
-
-async function forwardXaiImages(
-  providerConfig: ResolvedProviderConfig,
-  request: Request,
-  operation: CodexImagesOperation,
-  payload: Record<string, unknown>,
-): Promise<Response> {
-  const upstreamRequest = new Request(request.url, {
-    body: JSON.stringify(payload),
-    headers: {
-      accept: "application/json",
-      "content-type": "application/json",
-    },
-    method: "POST",
-    signal: request.signal,
-  })
-  const upstreamResponse = await forwardProviderImagesWithLogging(
+  return await forwardXaiImagesWithLogging(
     providerConfig,
-    upstreamRequest,
+    c.req.raw,
     operation,
+    payload,
     { logger, provider: "xai" },
   )
-  return await ensureImageResponseB64Json(upstreamResponse, undefined, {
-    clientSignal: request.signal,
-    onImageUrl: (url) => {
-      logger.info("images.xai.output.url", JSON.stringify({ operation, url }))
-    },
-    responseFormat: payload.response_format === "url" ? "url" : "b64_json",
-  })
 }
 
 export async function handleXaiImageGeneration(

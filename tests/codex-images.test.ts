@@ -1263,6 +1263,189 @@ describe("xAI image routes", () => {
   )
 
   test.each([
+    { operation: "generations", imageCount: 0, mapped: false },
+    { operation: "generations", imageCount: 0, mapped: true },
+    { operation: "edits", imageCount: 1, mapped: false },
+    { operation: "edits", imageCount: 1, mapped: true },
+    { operation: "edits", imageCount: 2, mapped: false },
+    { operation: "edits", imageCount: 2, mapped: true },
+  ] as const)(
+    "translates OpenAI JSON options for an xAI model alias: %j",
+    async ({ operation, imageCount, mapped }) => {
+      const alias = "xai/grok-imagine-image-2.0"
+      if (mapped) modelMappings = { "image-model": alias }
+      const images = [
+        { image_url: "data:image/png;base64," + png.toString("base64") },
+        { image_url: "https://example.com/second.png" },
+      ].slice(0, imageCount)
+      const response = await createApp().request(
+        `/v1/images/${operation}?client=desktop`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            model: mapped ? "image-model" : alias,
+            prompt: "make it blue",
+            n: 2,
+            size: "1536x1024",
+            quality: "high",
+            ...(imageCount ? { images } : {}),
+          }),
+        },
+      )
+      expect(response.status).toBe(200)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      const [url, init] = fetchMock.mock.calls[0] ?? []
+      expect(url).toBe(`https://api.x.ai/v1/images/${operation}?client=desktop`)
+      const headers = new Headers(init?.headers)
+      expect(headers.get("authorization")).toBe("Bearer xai-key")
+      expect(headers.get("content-type")).toBe("application/json")
+      expect(await new Response(init?.body).json()).toEqual({
+        model: "grok-imagine-image-2.0",
+        prompt: "make it blue",
+        n: 2,
+        aspect_ratio: "3:2",
+        resolution: "2k",
+        quality: "medium",
+        response_format: "b64_json",
+        ...(imageCount === 1 ?
+          { image: { type: "image_url", url: images[0].image_url } }
+        : imageCount > 1 ?
+          {
+            images: images.map((image) => ({
+              type: "image_url",
+              url: image.image_url,
+            })),
+          }
+        : {}),
+      })
+      expect(await response.json()).toMatchObject({
+        data: [{ b64_json: "generated-image" }],
+      })
+    },
+  )
+
+  test("sends desktop default xAI image edits through an HTTP gateway", async () => {
+    const gateway = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: createApp().fetch,
+    })
+    try {
+      fetchMock.mockImplementationOnce(() =>
+        Promise.resolve(
+          Response.json({ data: [{ b64_json: png.toString("base64") }] }),
+        ),
+      )
+      const client = createMediaStudioClient({
+        getBaseUrl: () => gateway.url.origin,
+        getHeaders: () => Promise.resolve({ "x-api-key": "gateway-key" }),
+        fetch: originalFetch,
+      })
+      const result = await client.createImages("desktop-xai-edit", {
+        provider: "default",
+        mode: "edit",
+        model: "xai/grok-imagine-image-2.0",
+        prompt: "make it blue",
+        n: 1,
+        size: "1024x1024",
+        quality: "high",
+        images: [{ name: "source.png", type: "image/png", bytes: png }],
+      })
+      expect(result[0]?.url).toBe(
+        "data:image/png;base64," + png.toString("base64"),
+      )
+      const [url, init] = fetchMock.mock.calls[0] ?? []
+      expect(url).toBe("https://api.x.ai/v1/images/edits")
+      expect(new Headers(init?.headers).get("x-api-key")).toBeNull()
+      expect(await new Response(init?.body).json()).toEqual({
+        model: "grok-imagine-image-2.0",
+        prompt: "make it blue",
+        n: 1,
+        aspect_ratio: "1:1",
+        resolution: "1k",
+        quality: "medium",
+        response_format: "b64_json",
+        image: {
+          type: "image_url",
+          url: "data:image/png;base64," + png.toString("base64"),
+        },
+      })
+    } finally {
+      await gateway.stop(true)
+    }
+  })
+
+  test.each(["generations", "edits"] as const)(
+    "normalizes URL-only output for an xAI model alias on %s",
+    async (operation) => {
+      fetchMock.mockImplementationOnce(() =>
+        Promise.resolve(
+          Response.json({ data: [{ url: "https://imgen.x.ai/output.png" }] }),
+        ),
+      )
+      fetchMock.mockImplementationOnce(() =>
+        Promise.resolve(
+          new Response(png, { headers: { "content-type": "image/png" } }),
+        ),
+      )
+      const response = await createApp().request(`/v1/images/${operation}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "xai/grok-imagine-image-2.0",
+          prompt: "make it blue",
+          ...(operation === "edits" ?
+            { image: "https://example.com/source.png" }
+          : {}),
+        }),
+      })
+      expect(response.status).toBe(200)
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(await response.json()).toMatchObject({
+        data: [{ b64_json: png.toString("base64") }],
+      })
+      const [url, init] = fetchMock.mock.calls[1] ?? []
+      expect(url).toBe("https://imgen.x.ai/output.png")
+      expect(new Headers(init?.headers).get("authorization")).toBeNull()
+    },
+  )
+
+  test.each([
+    {
+      operation: "generations",
+      options: { n: 0 },
+      message: "n must be an integer from 1 to 10",
+    },
+    {
+      operation: "edits",
+      options: {
+        image: "https://example.com/source.png",
+        mask: "https://example.com/mask.png",
+      },
+      message: "xAI image edits do not support mask",
+    },
+  ])(
+    "validates OpenAI JSON requests to an xAI model alias: %j",
+    async ({ operation, options, message }) => {
+      const response = await createApp().request(`/v1/images/${operation}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "xai/grok-imagine-image-2.0",
+          prompt: "make it blue",
+          ...options,
+        }),
+      })
+      expect(response.status).toBe(400)
+      expect(await response.json()).toEqual({
+        error: { type: "invalid_request_error", message },
+      })
+      expect(fetchMock).not.toHaveBeenCalled()
+    },
+  )
+
+  test.each([
     { operation: "generations", option: "n" },
     { operation: "generations", option: "response_format" },
     { operation: "edits", option: "n" },
