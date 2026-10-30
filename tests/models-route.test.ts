@@ -431,15 +431,15 @@ describe("model routes", () => {
       expect(rawBody.data.map((model) => model.id)).toEqual(ids)
       const aggregated = await app.request("/v1/models")
       const body = (await aggregated.json()) as { data: Array<{ id: string }> }
-      expect(body.data.map((model) => model.id)).toEqual(
-        ids.map((id) => `${provider}/${id}`),
-      )
+      const expectedIds = ids.map((id) => `${provider}/${id}`)
+      if (provider === "xai") expectedIds.push("xai/grok-imagine-image-2.0")
+      expect(body.data.map((model) => model.id)).toEqual(expectedIds)
       expect(fetchMock).not.toHaveBeenCalled()
     },
   )
 
   test.each(["xai", "openrouter", "deepseek", "kimi", "dashscope", "alibaba"])(
-    "returns a local catalog error for missing %s records without remote fallback",
+    "preserves scoped errors for missing %s records without remote fallback",
     async (provider) => {
       installModelsDevCatalog(modelsDevCatalogFixture)
       enabledProviders = [provider]
@@ -453,7 +453,10 @@ describe("model routes", () => {
         error: { type: "service_unavailable" },
       })
       const aggregated = await createApp().request("/v1/models")
-      expect(await aggregated.json()).toMatchObject({ data: [] })
+      const body = (await aggregated.json()) as { data: Array<{ id: string }> }
+      expect(body.data.map((model) => model.id)).toEqual(
+        provider === "xai" ? ["xai/grok-imagine-image-2.0"] : [],
+      )
       expect(fetchMock).not.toHaveBeenCalled()
     },
   )
@@ -768,7 +771,7 @@ describe("model routes", () => {
     },
   )
 
-  test.each(["curl/8.0", "claude-cli/2.1", "codex/1.0"])(
+  test.each(["claude-cli/2.1", "codex/1.0"])(
     "does not add image defaults to the %s chat catalog",
     async (userAgent) => {
       enableCodexCatalog()
@@ -786,6 +789,64 @@ describe("model routes", () => {
       expect(body).not.toContain("grok-imagine-image-2.0")
     },
   )
+
+  test.each(["/models", "/v1/models"])(
+    "includes built-in image models in the default catalog at %s",
+    async (endpoint) => {
+      enableCodexCatalog()
+      enabledProviders.push("xai")
+      providerConfigs.codex!.agentsModels = ["gpt-6-luna"]
+      providerConfigs.xai = {
+        ...createProviderConfig("xai", "https://unused.example"),
+        agentsModels: [],
+      }
+      const response = await createApp().request(endpoint)
+      expect(response.status).toBe(200)
+      const { data } = (await response.json()) as {
+        data: Array<Record<string, unknown> & { id: string }>
+      }
+      expect(data.map((model) => model.id)).toContain("codex/gpt-6-luna")
+      expect(data.map((model) => model.id)).toContain("xai/grok-4.7")
+      const images = data.filter((model) => model.type === "image")
+      expect(images.map((model) => model.id)).toEqual([
+        "codex/gpt-image-2",
+        "xai/grok-imagine-image-2.0",
+      ])
+      for (const image of images) {
+        expect(image).toMatchObject({
+          object: "model",
+          input_modalities: ["text", "image"],
+          output_modalities: ["image"],
+        })
+        expect(image).not.toHaveProperty("package")
+      }
+      expect(fetchMock).not.toHaveBeenCalled()
+    },
+  )
+
+  test("skips unavailable providers in the default image-inclusive catalog", async () => {
+    enableCodexCatalog()
+    enabledProviders.push("xai")
+    providerConfigs.codex = null
+    const unavailable = await createApp().request("/models")
+    expect(await unavailable.json()).toMatchObject({ data: [] })
+  })
+
+  test("preserves agent selections in DeepSeek's default image-inclusive catalog", async () => {
+    enableCodexCatalog()
+    providerConfigs.codex!.agentsModels = ["gpt-6-luna"]
+    const request = () =>
+      createApp().request("/models", {
+        headers: { "user-agent": "DeepSeek-Harness" },
+      })
+    const chat = await request()
+    expect(await chat.text()).not.toContain("gpt-image-2")
+    providerConfigs.codex!.agentsModels = ["gpt-image-2"]
+    const image = await request()
+    expect(await image.json()).toMatchObject({
+      data: [{ id: "codex/gpt-image-2", type: "image" }],
+    })
+  })
 
   test.each<{
     name: string
