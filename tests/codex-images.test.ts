@@ -46,6 +46,12 @@ const { multipartEditDependencies } = await import(
   "~/routes/images/multipart-edits"
 )
 const { server } = await import("~/server")
+const { closeUsageStore, getTokenUsageEventsPage } = await import(
+  "~/lib/token-usage"
+)
+const { traceIdMiddleware } = await import("~/lib/trace")
+const { requestEventsMiddleware } = await import("~/lib/request-events")
+const { GatewayPlugins } = await import("~/lib/gateway-plugins")
 const { createMediaStudioClient } = await import(
   "../desktop/electron/media-studio"
 )
@@ -173,6 +179,292 @@ afterEach(async () => {
   imageRouteDependencies.getImageEditModel = originalGetImageEditModel
   imageRouteDependencies.getImageGenerationModel =
     originalGetImageGenerationModel
+})
+
+describe("images route usage recording", () => {
+  const pluginsToClose: Array<InstanceType<typeof GatewayPlugins>> = []
+  const originalDbPath = process.env.COPILOT_API_SQLITE_DB_PATH
+  const usage = {
+    input_tokens: 14,
+    input_tokens_details: { image_tokens: 0, text_tokens: 14 },
+    output_tokens: 1372,
+    output_tokens_details: { image_tokens: 1372, text_tokens: 0 },
+    total_tokens: 1386,
+  }
+  beforeEach(async () => {
+    process.env.COPILOT_API_SQLITE_DB_PATH = ":memory:"
+    await closeUsageStore()
+  })
+  afterEach(async () => {
+    await Promise.all(
+      pluginsToClose.splice(0).map((plugins) => plugins.close()),
+    )
+    await closeUsageStore()
+    if (originalDbPath === undefined)
+      Reflect.deleteProperty(process.env, "COPILOT_API_SQLITE_DB_PATH")
+    else process.env.COPILOT_API_SQLITE_DB_PATH = originalDbPath
+  })
+
+  for (const format of ["json", "multipart"] as const) {
+    test.each(["/v1/images/edits", "/codex/v1/images/edits"])(
+      `records the Codex default model and cost for model-less ${format} at %s`,
+      async (url) => {
+        // Missing client models keep Codex routing even when its default model
+        // has a mapping; the upstream body must stay model-less.
+        modelMappings = { "gpt-image-2": "openrouter/other-image-model" }
+        fetchMock.mockResolvedValueOnce(
+          Response.json({ data: [{ b64_json: "image" }], usage }),
+        )
+        const form = new FormData()
+        form.set("prompt", "edit")
+        form.set(
+          "image",
+          new File(["image"], "image.png", { type: "image/png" }),
+        )
+        const response = await createApp().request(url, {
+          method: "POST",
+          ...(format === "json" ?
+            { headers: { "content-type": "application/json" } }
+          : {}),
+          body:
+            format === "json" ?
+              JSON.stringify({
+                prompt: "edit",
+                images: [{ file_id: "file-image" }],
+              })
+            : form,
+        })
+        expect(response.status).toBe(200)
+        await response.text()
+        const [upstreamUrl, init] = fetchMock.mock.calls[0] ?? []
+        expect(upstreamUrl).toBe(
+          "https://chatgpt.com/backend-api/codex/images/edits",
+        )
+        const forwardedBody: unknown = await new Response(init?.body).json()
+        expect(forwardedBody).not.toHaveProperty("model")
+        const events = await getTokenUsageEventsPage({
+          page: 1,
+          pageSize: 20,
+          period: "today",
+        })
+        expect(events.items).toHaveLength(1)
+        expect(events.items[0]).toMatchObject({
+          endpoint: "images_edits",
+          provider_name: "codex",
+          model: "gpt-image-2",
+          input_tokens: 14,
+          output_tokens: 1372,
+          total_tokens: 1386,
+          cost: { amount: 0.04123, currency: "USD", source: "builtin" },
+        })
+      },
+    )
+  }
+
+  const cases = [
+    { mode: "default", url: "/v1/images/generations", provider: "codex" },
+    { mode: "scoped", url: "/codex/v1/images/generations", provider: "codex" },
+    { mode: "mapped", url: "/v1/images/generations", provider: "codex" },
+    { mode: "scoped", url: "/xai/v1/images/generations", provider: "xai" },
+    { mode: "mapped", url: "/v1/images/generations", provider: "xai" },
+    { mode: "configured", url: "/v1/images/generations", provider: "xai" },
+    { mode: "multipart", url: "/v1/images/edits", provider: "codex" },
+    { mode: "multipart", url: "/codex/v1/images/edits", provider: "codex" },
+  ]
+  for (const { mode, url, provider } of cases) {
+    test(`records ${provider} usage and cost via ${mode} ${url}`, async () => {
+      const model =
+        provider === "xai" ? "grok-imagine-image-2.0" : "gpt-image-2"
+      const reportedUsage =
+        provider === "xai" ? { cost_in_usd_ticks: 400_000_000 } : usage
+      fetchMock.mockImplementationOnce(() =>
+        Promise.resolve(
+          Response.json({
+            created: 123,
+            data: [{ b64_json: "image-bytes" }],
+            usage: reportedUsage,
+          }),
+        ),
+      )
+      if (mode === "mapped")
+        modelMappings = { "image-alias": `${provider}/${model}` }
+      if (mode === "configured")
+        imageRouteDependencies.getImageGenerationModel = () => ({
+          status: "xai",
+          model,
+        })
+      const form = new FormData()
+      form.append("model", model)
+      form.append("prompt", "make it green")
+      form.append(
+        "image",
+        new File(["image"], "cat.png", { type: "image/png" }),
+      )
+      const app = new Hono()
+      app.use(traceIdMiddleware)
+      const plugins = new GatewayPlugins(5000)
+      pluginsToClose.push(plugins)
+      const lifecycle: Array<{ name: string; value: unknown }> = []
+      await plugins.register("image-test", ({ on }) => {
+        for (const name of [
+          "request.start",
+          "request.model",
+          "request.actual_model",
+          "request.end",
+          "usage.recorded",
+        ] as const)
+          on(name, (value) => {
+            lifecycle.push({ name, value })
+          })
+      })
+      app.use(requestEventsMiddleware(plugins, 5000))
+      app.route("/", createApp())
+      const response = await app.request(url, {
+        method: "POST",
+        headers: {
+          ...(mode === "multipart" ?
+            {}
+          : { "content-type": "application/json" }),
+          "x-trace-id": "images-route-trace",
+          "user-agent": "images-client",
+        },
+        body:
+          mode === "multipart" ? form : (
+            JSON.stringify({
+              model: mode === "mapped" ? "image-alias" : model,
+              prompt: "cat",
+            })
+          ),
+      })
+      expect(response.status).toBe(200)
+      expect(await response.json()).toMatchObject({ usage: reportedUsage })
+      const events = await getTokenUsageEventsPage({
+        page: 1,
+        pageSize: 20,
+        period: "today",
+      })
+      expect(events.items).toHaveLength(1)
+      expect(events.items[0]).toMatchObject({
+        endpoint: mode === "multipart" ? "images_edits" : "images_generations",
+        model,
+        provider_name: provider,
+        trace_id: "images-route-trace",
+        user_agent: "images-client",
+        input_tokens: provider === "xai" ? 0 : 14,
+        output_tokens: provider === "xai" ? 0 : 1372,
+        total_tokens: provider === "xai" ? 0 : 1386,
+        cost: {
+          amount: provider === "xai" ? 0.04 : 0.04123,
+          currency: "USD",
+          source: provider === "xai" ? "upstream" : "builtin",
+        },
+        request_outcome: "completed",
+      })
+      const event = events.items[0]
+      expect(event.request_id).toBeString()
+      expect(event.duration_ms).toBeNumber()
+      await plugins.flush()
+      expect(
+        lifecycle.filter((item) => item.name === "request.start"),
+      ).toHaveLength(1)
+      expect(
+        lifecycle.find((item) => item.name === "request.model")?.value,
+      ).toMatchObject({ model: mode === "mapped" ? "image-alias" : model })
+      expect(
+        lifecycle.find((item) => item.name === "request.actual_model")?.value,
+      ).toMatchObject({ actualModel: `${provider}/${model}` })
+      expect(
+        lifecycle.filter((item) => item.name === "usage.recorded"),
+      ).toHaveLength(1)
+      expect(
+        lifecycle.find((item) => item.name === "usage.recorded")?.value,
+      ).toMatchObject({ model, actualModel: `${provider}/${model}` })
+      expect(
+        lifecycle.find((item) => item.name === "request.end")?.value,
+      ).toMatchObject({
+        id: event.request_id,
+        durationMs: event.duration_ms,
+        outcome: "completed",
+      })
+    })
+  }
+
+  test.each([
+    "/images/generations",
+    "/v1/images/edits",
+    "/codex/v1/images/generations",
+    "/xai/images/edits",
+  ])(
+    "records cancelled image usage and publishes lifecycle events once on %s",
+    async (path) => {
+      const plugins = new GatewayPlugins(5000)
+      pluginsToClose.push(plugins)
+      const ended: Array<unknown> = []
+      const recorded: Array<unknown> = []
+      await plugins.register("image-cancel-test", ({ on }) => {
+        on("request.end", (event) => {
+          ended.push(event)
+        })
+        on("usage.recorded", (event) => {
+          recorded.push(event)
+        })
+      })
+      const cancel = mock(() => {})
+      fetchMock.mockResolvedValueOnce(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(
+                new TextEncoder().encode(
+                  JSON.stringify({
+                    data: [],
+                    usage:
+                      path.startsWith("/xai") ?
+                        { cost_in_usd_ticks: 400000000 }
+                      : usage,
+                  }),
+                ),
+              )
+            },
+            cancel,
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+      )
+      const app = new Hono()
+      app.use(traceIdMiddleware)
+      app.use(requestEventsMiddleware(plugins, 5000))
+      app.route("/", createApp())
+      const response = await app.request(path, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "gpt-image-2",
+          prompt: "edit",
+          images: [],
+        }),
+      })
+      const reader = response.body!.getReader()
+      await reader.read()
+      await reader.cancel("client stopped")
+      expect(cancel).toHaveBeenCalledTimes(1)
+      const events = await getTokenUsageEventsPage({
+        period: "today",
+        page: 1,
+        pageSize: 20,
+      })
+      expect(events.items).toHaveLength(1)
+      expect(events.items[0]?.request_outcome).toBe("cancelled")
+      expect(events.items[0]?.duration_ms).toBeNumber()
+      await plugins.flush()
+      expect(ended).toHaveLength(1)
+      expect(recorded).toHaveLength(1)
+      expect(ended[0]).toMatchObject({
+        id: events.items[0]?.request_id,
+        outcome: "cancelled",
+      })
+    },
+  )
 })
 
 describe("Codex images URL", () => {
@@ -419,7 +711,16 @@ describe("Codex images forwarding", () => {
       expect(headers.get("content-type")).toBe("application/json")
       expect(headers.get("x-client-request-id")).toBe("edit-request")
       expect(await new Response(init?.body).text()).toBe(body)
-      expect(debugJsonAsyncMock).not.toHaveBeenCalled()
+      expect(debugValues).toEqual([
+        {
+          contentType: "application/json",
+          contentLength: null,
+          body: {
+            ...payload,
+            images: [{ image_url: "[image base64 omitted]" }],
+          },
+        },
+      ])
     },
   )
 
@@ -775,6 +1076,9 @@ describe("Codex images forwarding", () => {
       body: JSON.stringify(payload),
     })
 
+    const [, init] = fetchMock.mock.calls[0] ?? []
+    await new Response(init?.body).text()
+
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({
       created: 1_784_000_000,
@@ -784,7 +1088,9 @@ describe("Codex images forwarding", () => {
     expect(debugJsonAsyncMock.mock.calls[0]?.[1]).toBe(
       "images.generations.codex.request",
     )
-    expect(debugValues).toEqual([{ body: JSON.stringify(payload) }])
+    expect(debugValues).toEqual([
+      { contentType: "application/json", contentLength: null, body: payload },
+    ])
   })
 
   test("does not expose image endpoints over GET", async () => {

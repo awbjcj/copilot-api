@@ -3,13 +3,17 @@ import { Hono, type Context } from "hono"
 import { forwardError } from "~/lib/error"
 import { createHandlerLogger } from "~/lib/logger"
 import { resolveProviderConfig } from "~/lib/provider-resolver"
+import { setPluginRequestModel } from "~/lib/request-events"
 import { handleCodexImages } from "~/routes/images/route"
 import {
   imageEditRequestErrorResponse,
   parseMultipartImageEdit,
 } from "~/routes/images/multipart-edits"
 import { imageEditContentTypeErrorResponse } from "~/routes/images/shared"
-import type { CodexImagesOperation } from "~/services/codex/images"
+import {
+  DEFAULT_CODEX_IMAGE_MODEL,
+  type CodexImagesOperation,
+} from "~/services/codex/images"
 import { forwardProviderImagesWithLogging } from "~/routes/images/forward-provider-images"
 
 const logger = createHandlerLogger("provider-images-handler")
@@ -45,6 +49,12 @@ async function handleProviderImages(
       const multipart = await parseMultipartImageEdit(c.req.raw)
       if (multipart) {
         try {
+          setPluginRequestModel(
+            multipart.model
+              ?? (providerConfig.name === "codex" ?
+                DEFAULT_CODEX_IMAGE_MODEL
+              : "unknown"),
+          )
           const request = await multipart.createRequest(
             multipart.model,
             providerConfig.name,
@@ -55,13 +65,14 @@ async function handleProviderImages(
               operation,
               providerConfig,
               request,
+              multipart.model ?? DEFAULT_CODEX_IMAGE_MODEL,
             )
           }
           return await forwardProviderImagesWithLogging(
             providerConfig,
             request,
             operation,
-            { logger, provider },
+            { logger, provider, model: multipart.model ?? "unknown" },
           )
         } finally {
           await multipart.cleanup()

@@ -307,7 +307,7 @@ export async function forwardCodexResponses(
 ): Promise<CreateResponsesReturn> {
   consola.log(`<-- model: ${payload.model}`)
   options.clientSignal?.throwIfAborted()
-  setPluginRequestActualModel(payload.model)
+  setPluginRequestActualModel(payload.model, "codex")
   const transport = resolveCodexResponsesTransport(options.transport)
   if (payload.stream && transport === "websocket") {
     return forwardCodexResponsesOverWebSocket(

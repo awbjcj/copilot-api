@@ -713,7 +713,7 @@ describe("request event lifecycle", () => {
     expect(ends[0].sessionId).toBe("original-session")
     expect(sessions).toHaveLength(0)
     expect(usages[0].userAgent).toBe("usage-client/1.0")
-    expect(usages[0].actualModel).toBe("test-model")
+    expect(usages[0].actualModel).toBe("test/test-model")
     expect(persisted.items[0].session_id).toBe("original-session")
     expect(persisted.items[0].user_agent).toBe("usage-client/1.0")
     expect(persisted.items[0]).not.toHaveProperty("userAgent")

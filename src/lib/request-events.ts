@@ -6,10 +6,15 @@ import type {
   PluginRequest,
   GatewayPluginEvents,
 } from "./gateway-plugins"
-import { requestContext, type RequestTiming } from "./request-context"
+import {
+  formatPluginActualModel,
+  requestContext,
+  type RequestTiming,
+} from "./request-context"
 import { enqueueTokenUsageTiming } from "./token-usage/store"
 
-const TRACKED = /\/(chat\/completions|responses|messages|alpha\/search)$/
+const TRACKED =
+  /\/(chat\/completions|responses|messages|alpha\/search|images\/(generations|edits))$/
 
 // Called only where the handler already has a parsed payload.
 export function setPluginRequestModel(model: string): void {
@@ -110,7 +115,10 @@ export function requestEventsMiddleware(
             requestId: info.id,
             userAgent: info.userAgent,
             sessionId: event.session_id || null,
-            actualModel: event.model,
+            actualModel: formatPluginActualModel(
+              event.model,
+              event.provider_name,
+            ),
           }),
       }
     plugins?.publish("request.start", info)

@@ -1,6 +1,7 @@
 import type { Context } from "hono"
 
 import { forwardError } from "~/lib/error"
+import { setPluginRequestModel } from "~/lib/request-events"
 import {
   imageEditRequestErrorResponse,
   parseMultipartImageEdit,
@@ -14,6 +15,7 @@ import {
   routeImagesRequest,
 } from "~/routes/images/shared"
 import { handleXaiImageEdit } from "~/routes/images/xai-handler"
+import { DEFAULT_CODEX_IMAGE_MODEL } from "~/services/codex/images"
 
 export async function handleImagesEdits(c: Context): Promise<Response> {
   try {
@@ -44,11 +46,13 @@ export async function handleImagesEdits(c: Context): Promise<Response> {
           )
         }
         if (multipart.model === undefined) {
+          setPluginRequestModel(DEFAULT_CODEX_IMAGE_MODEL)
           return await handleCodexImages(
             c,
             "edits",
             undefined,
             await multipart.createRequest(undefined),
+            DEFAULT_CODEX_IMAGE_MODEL,
           )
         }
         return await routeImagesRequest(c, "edits", {
@@ -70,7 +74,7 @@ export async function handleImagesEdits(c: Context): Promise<Response> {
 
     const parsed = await parseJsonImagesRequest(c.req.raw)
     if (parsed instanceof Request) {
-      return await handleCodexImages(c, "edits", undefined, parsed)
+      return await handleCodexImages(c, "edits", undefined, parsed, "unknown")
     }
     return await routeImagesRequest(c, "edits", parsed)
   } catch (error) {

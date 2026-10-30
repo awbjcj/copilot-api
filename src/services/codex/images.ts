@@ -11,6 +11,9 @@ import {
 
 export type CodexImagesOperation = "generations" | "edits"
 
+// Codex's default differs from the public OpenAI Images API default.
+export const DEFAULT_CODEX_IMAGE_MODEL = "gpt-image-2"
+
 const CODEX_IMAGES_TIMEOUT_MS = 15 * 60 * 1000
 
 const codexImagesDispatcher = createTimeoutDispatcher(CODEX_IMAGES_TIMEOUT_MS)

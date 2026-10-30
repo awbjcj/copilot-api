@@ -15,6 +15,8 @@ export type TokenUsageSource = "copilot" | "provider"
 export type TokenUsageEndpoint =
   | "chat_completions"
   | "embeddings"
+  | "images_generations"
+  | "images_edits"
   | "messages"
   | "provider_messages"
   | "responses"
@@ -32,9 +34,16 @@ export interface UsageTokens {
   cache_read_input_tokens?: number | null
   cost?: number | null
   input_tokens?: number | null
+  input_tokens_details?: ImageTokenDetails
   output_tokens?: number | null
+  output_tokens_details?: ImageTokenDetails
   total_nano_aiu?: number | null
   total_tokens?: number | null
+}
+
+export interface ImageTokenDetails {
+  image_tokens?: number
+  text_tokens?: number
 }
 
 export interface TokenUsageCost {

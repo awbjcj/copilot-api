@@ -31,6 +31,16 @@
 - **URL-based Configuration**：也可通过 `endpoint` 和 `period` 查询参数直接指定 API 端点与时间范围。例如：
   `http://localhost:4141/usage-viewer?endpoint=http://your-api-server/usage&period=this_week`
 
+### 图片用量与费用
+
+图片生成和编辑也会进入 Token Usage 的事件、模型、日期和 session 汇总，记录实际转发的模型。Codex 请求省略 `model` 时，按其默认模型 `gpt-image-2` 记录和估价。Codex 保存上游报告的输入、输出和总 token，使用图片/文本 token 明细按内置的 OpenAI 官方 API 单价估算美元费用，内置计价仅支持 GPT Image 2 和 2.5（含版本名和日期快照）；这是 API 价格参考值，不代表 Codex 订阅额外扣费。未返回明细时，输入按文本、输出按图片估算；其他模型保留 token，不猜测价格。
+
+xAI 使用上游 `usage.cost_in_usd_ticks` 报告的费用（`10^10` ticks = 1 USD），不内置图片价格。只返回费用时仍计入请求数和费用汇总，token 显示为 0，表示上游未报告 token。没有有效 token 或有效费用的响应不新增记录。
+
+开启 verbose 日志后，图片响应记录 JSON 中除 `data` 外的元数据，流式图片 base64 也会省略；编辑请求记录 prompt、模型和其他参数，图片 base64 使用占位标记，multipart 文件仅记录名称、类型和大小。
+
+图片请求也记录请求 ID、总耗时、完成/取消状态，并触发插件生命周期事件；图片首 token 延迟仍为空。JSON 的 `model` 位于前部时直接流式转发，模型改写也按块处理；模型位于后部及 xAI 格式转换时，大请求体/字符串使用临时文件暂存，暂存请求上限为 512 MiB，使用后自动清理。verbose JSON 日志在转发过程中提取元数据，不完整缓存请求体。
+
 ### Usage Viewer 截图
 
 <p align="center">

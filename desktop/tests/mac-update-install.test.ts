@@ -30,6 +30,9 @@ import {
   markMacUpdateReady,
 } from '../electron/mac-update-install'
 
+// Native macOS paths and the detached /bin/sh helper require a POSIX host.
+const it = test.skipIf(process.platform === 'win32')
+
 let directory: string
 let appPath: string
 beforeEach(async () => {
@@ -106,7 +109,7 @@ describe('macOS installation preparation', () => {
     }
   })
 
-  test('only offers automatic installation for a real writable app outside restricted locations', async () => {
+  it('only offers automatic installation for a real writable app outside restricted locations', async () => {
     expect(
       getMacApplicationPath(path.join(appPath, 'Contents/MacOS/Copilot API')),
     ).toBe(appPath)
@@ -213,7 +216,7 @@ describe('macOS installation preparation', () => {
     ).toBe('cancelled')
   })
 
-  test('real detached shell acknowledges startup before the gateway is stopped', async () => {
+  it('real detached shell acknowledges startup before the gateway is stopped', async () => {
     const { options, beforeQuit, quit } = setup()
     beforeQuit.mockRejectedValueOnce(
       new Error('deliberately keep test parent alive'),

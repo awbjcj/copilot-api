@@ -3,9 +3,13 @@ import type { Context } from "hono"
 
 import { resolveMappedModel, type ResolvedProviderConfig } from "~/lib/config"
 import { forwardError } from "~/lib/error"
+import { prepareImageJsonRequest } from "~/lib/image-json-request"
+import { setPluginRequestActualModel } from "~/lib/request-context"
+import { setPluginRequestModel } from "~/lib/request-events"
 import { createHandlerLogger, debugJson, debugJsonAsync } from "~/lib/logger"
 import { parseProviderModelAlias } from "~/lib/provider-model"
 import { resolveProviderConfig } from "~/lib/provider-resolver"
+import { observeImagesResponse } from "~/lib/token-usage/images"
 import {
   getImageEditModel,
   getImageGenerationModel,
@@ -14,15 +18,13 @@ import {
   forwardProviderImagesWithLogging,
   forwardXaiImagesWithLogging,
 } from "~/routes/images/forward-provider-images"
+import { logImageEditRequest } from "~/routes/images/request-logging"
 import {
+  DEFAULT_CODEX_IMAGE_MODEL,
   forwardCodexImages,
   type CodexImagesOperation,
 } from "~/services/codex/images"
-import { createProviderProxyResponse } from "~/services/providers/provider-proxy"
-import {
-  translateXaiImageEditJson,
-  translateXaiImageGeneration,
-} from "~/services/xai/images"
+import { translateXaiImageJsonRequest } from "~/routes/images/xai-json-request"
 
 export const logger = createHandlerLogger("images-handler")
 
@@ -40,7 +42,7 @@ export interface ParsedImagesRequest {
     model: string,
     provider?: string,
   ) => Request | Promise<Request>
-  model: string
+  model: string | undefined
   /** Unchanged request, forwarded as-is when no rebuild is needed. */
   originalRequest?: Request
 }
@@ -100,22 +102,6 @@ export function createForwardRequest(
   return new Request(request.url, init)
 }
 
-function createJsonImagesRequest(
-  request: Request,
-  requestHeaders: Headers,
-  payload: Record<string, unknown>,
-  model: string,
-): Request {
-  const headers = new Headers(requestHeaders)
-  headers.delete("content-length")
-
-  return createForwardRequest(
-    request,
-    headers,
-    new TextEncoder().encode(JSON.stringify({ ...payload, model })),
-  )
-}
-
 /**
  * Parses an image request body as JSON, retaining the original bytes for
  * unchanged forwarding while allowing model mapping to rebuild the payload.
@@ -124,39 +110,8 @@ function createJsonImagesRequest(
 export async function parseJsonImagesRequest(
   request: Request,
 ): Promise<ParsedImagesRequest | Request> {
-  const requestHeaders = snapshotRequestHeaders(request)
-  const body = new Uint8Array(await request.arrayBuffer())
-  const originalRequest = createForwardRequest(request, requestHeaders, body)
-
-  let payload: unknown
-  try {
-    const bodyText = new TextDecoder("utf-8", { fatal: true }).decode(body)
-    payload = JSON.parse(bodyText)
-  } catch {
-    return originalRequest
-  }
-
-  if (
-    payload === null
-    || typeof payload !== "object"
-    || Array.isArray(payload)
-    || typeof (payload as { model?: unknown }).model !== "string"
-  ) {
-    return originalRequest
-  }
-
-  const model = (payload as { model: string }).model
-  return {
-    createRequest: (mappedModel) =>
-      createJsonImagesRequest(
-        request,
-        requestHeaders,
-        payload as Record<string, unknown>,
-        mappedModel,
-      ),
-    model,
-    originalRequest,
-  }
+  const parsed = await prepareImageJsonRequest(request)
+  return parsed.valid ? parsed : parsed.originalRequest
 }
 
 /**
@@ -169,12 +124,14 @@ export async function handleCodexImages(
   operation: CodexImagesOperation,
   resolvedProviderConfig?: ResolvedProviderConfig,
   request: Request = c.req.raw,
+  model?: string,
 ): Promise<Response> {
   try {
     const codexProviderConfig =
       resolvedProviderConfig
       ?? (await imageRouteDependencies.resolveProviderConfig("codex"))
     if (!codexProviderConfig) {
+      await request.body?.cancel().catch(() => {})
       return c.json(
         {
           error: {
@@ -186,29 +143,43 @@ export async function handleCodexImages(
       )
     }
 
-    if (operation === "generations") {
-      await imageRouteDependencies.debugJsonAsync(
-        logger,
-        "images.generations.codex.request",
-        async () => ({
-          body: await request.clone().text(),
-        }),
-      )
-    } else {
-      debugJson(
-        logger,
-        "images.edits.codex.request",
-        getContentMetadata(request.headers),
-      )
+    let actualModel = model
+    if (
+      actualModel === undefined
+      && !request.headers.get("content-type")?.includes("multipart/form-data")
+    ) {
+      const parsed = await prepareImageJsonRequest(request)
+      actualModel =
+        parsed.valid ? (parsed.model ?? DEFAULT_CODEX_IMAGE_MODEL) : "unknown"
+      request = parsed.originalRequest
+      setPluginRequestModel(actualModel)
     }
+    actualModel ??= "unknown"
+    if (actualModel === "unknown") setPluginRequestModel(actualModel)
+    request = await logImageEditRequest(
+      logger,
+      `images.${operation}.codex.request`,
+      request,
+      {},
+      imageRouteDependencies.debugJsonAsync,
+    )
 
+    if (actualModel !== "unknown")
+      setPluginRequestActualModel(actualModel, "codex")
     const upstreamResponse = await forwardCodexImages(request, operation)
     debugJson(logger, `images.${operation}.codex.response`, {
       ...getContentMetadata(upstreamResponse.headers),
       statusCode: upstreamResponse.status,
     })
-    return createProviderProxyResponse(upstreamResponse)
+    return observeImagesResponse(upstreamResponse, {
+      model: actualModel,
+      operation,
+      providerConfig: codexProviderConfig,
+      onMetadata: (metadata) =>
+        debugJson(logger, `images.${operation}.codex.response.body`, metadata),
+    })
   } catch (error) {
+    await request.body?.cancel().catch(() => {})
     logger.error(`images.${operation}.codex.error`, { error })
     return await forwardError(c, error)
   }
@@ -224,6 +195,17 @@ export async function routeImagesRequest(
   parsed: ParsedImagesRequest,
 ): Promise<Response> {
   const requestedModel = parsed.model
+  setPluginRequestModel(requestedModel ?? DEFAULT_CODEX_IMAGE_MODEL)
+  if (requestedModel === undefined) {
+    return await handleCodexImages(
+      c,
+      operation,
+      undefined,
+      parsed.originalRequest
+        ?? (await parsed.createRequest(DEFAULT_CODEX_IMAGE_MODEL)),
+      DEFAULT_CODEX_IMAGE_MODEL,
+    )
+  }
   const mappedModel = imageRouteDependencies.resolveMappedModel(requestedModel)
   if (mappedModel !== requestedModel) {
     consola.debug(`Resolved model mapping: ${requestedModel} -> ${mappedModel}`)
@@ -235,25 +217,39 @@ export async function routeImagesRequest(
       providerModelAlias.provider,
     )
     if (providerConfig) {
-      const request = await parsed.createRequest(
-        providerModelAlias.model,
-        providerConfig.name,
-      )
+      const request =
+        providerConfig.name === "xai" && parsed.originalRequest ?
+          parsed.originalRequest
+        : await parsed.createRequest(
+            providerModelAlias.model,
+            providerConfig.name,
+          )
       if (providerConfig.name === "codex") {
-        return await handleCodexImages(c, operation, providerConfig, request)
+        return await handleCodexImages(
+          c,
+          operation,
+          providerConfig,
+          request,
+          providerModelAlias.model,
+        )
       }
       if (providerConfig.name === "xai") {
-        const payload: unknown = await request.json()
-        const translated =
-          operation === "edits" ?
-            translateXaiImageEditJson(payload, providerModelAlias.model)
-          : translateXaiImageGeneration(payload, providerModelAlias.model)
+        const translated = await translateXaiImageJsonRequest(
+          request,
+          operation,
+          providerModelAlias.model,
+        )
         return await forwardXaiImagesWithLogging(
           providerConfig,
           request,
           operation,
-          translated,
-          { logger, provider: providerModelAlias.provider },
+          translated.payload,
+          {
+            logger,
+            provider: providerModelAlias.provider,
+            model: providerModelAlias.model,
+          },
+          translated.body,
         )
       }
 
@@ -261,7 +257,11 @@ export async function routeImagesRequest(
         providerConfig,
         request,
         operation,
-        { logger, provider: providerModelAlias.provider },
+        {
+          logger,
+          provider: providerModelAlias.provider,
+          model: providerModelAlias.model,
+        },
       )
     }
 
@@ -275,6 +275,7 @@ export async function routeImagesRequest(
       operation,
       undefined,
       parsed.originalRequest ?? (await parsed.createRequest(requestedModel)),
+      requestedModel,
     )
   }
 
@@ -284,6 +285,7 @@ export async function routeImagesRequest(
       operation,
       undefined,
       parsed.originalRequest,
+      requestedModel,
     )
   }
 
@@ -292,5 +294,6 @@ export async function routeImagesRequest(
     operation,
     undefined,
     await parsed.createRequest(mappedModel),
+    mappedModel,
   )
 }

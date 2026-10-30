@@ -33,7 +33,13 @@ export async function handleImagesGenerations(c: Context): Promise<Response> {
 
     const parsed = await parseJsonImagesRequest(c.req.raw)
     if (parsed instanceof Request) {
-      return await handleCodexImages(c, "generations", undefined, parsed)
+      return await handleCodexImages(
+        c,
+        "generations",
+        undefined,
+        parsed,
+        "unknown",
+      )
     }
 
     return await routeImagesRequest(c, "generations", parsed)

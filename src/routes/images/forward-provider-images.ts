@@ -1,17 +1,20 @@
 import type { ConsolaInstance } from "consola"
 
 import type { ResolvedProviderConfig } from "~/lib/config"
-import { debugJson, debugJsonAsync } from "~/lib/logger"
+import { debugJson } from "~/lib/logger"
+import { prepareImageJsonRequest } from "~/lib/image-json-request"
+import { setPluginRequestActualModel } from "~/lib/request-context"
+import { setPluginRequestModel } from "~/lib/request-events"
+import { observeImagesResponse } from "~/lib/token-usage/images"
+import { logImageEditRequest } from "~/routes/images/request-logging"
 import type { CodexImagesOperation } from "~/services/codex/images"
-import {
-  createProviderProxyResponse,
-  forwardProviderImages,
-} from "~/services/providers/provider-proxy"
+import { forwardProviderImages } from "~/services/providers/provider-proxy"
 import { ensureImageResponseB64Json } from "~/services/xai/images"
 
 export interface ProviderImagesForwardLogContext {
   logger: ConsolaInstance
   provider: string
+  model?: string
 }
 
 /**
@@ -23,37 +26,55 @@ export async function forwardProviderImagesWithLogging(
   providerConfig: ResolvedProviderConfig,
   request: Request,
   operation: CodexImagesOperation,
-  { logger, provider }: ProviderImagesForwardLogContext,
+  { logger, provider, model }: ProviderImagesForwardLogContext,
 ): Promise<Response> {
-  if (operation === "generations") {
-    await debugJsonAsync(
-      logger,
-      `provider.images.${operation}.request`,
-      async () => ({
-        body: await request.clone().text(),
-        provider,
-      }),
-    )
-  } else {
-    debugJson(logger, `provider.images.${operation}.request`, {
-      contentType: request.headers.get("content-type"),
-      contentLength: request.headers.get("content-length"),
-      provider,
-    })
+  let actualModel = model
+  if (
+    actualModel === undefined
+    && !request.headers.get("content-type")?.includes("multipart/form-data")
+  ) {
+    const parsed = await prepareImageJsonRequest(request)
+    actualModel = parsed.valid ? parsed.model : "unknown"
+    request = parsed.originalRequest
+    setPluginRequestModel(actualModel ?? "unknown")
   }
-
-  const upstreamResponse = await forwardProviderImages(
-    providerConfig,
+  actualModel ??= "unknown"
+  request = await logImageEditRequest(
+    logger,
+    `provider.images.${operation}.request`,
     request,
-    operation,
+    { provider },
   )
+
+  let upstreamResponse: Response
+  try {
+    if (actualModel !== "unknown")
+      setPluginRequestActualModel(actualModel, providerConfig.name)
+    upstreamResponse = await forwardProviderImages(
+      providerConfig,
+      request,
+      operation,
+    )
+  } catch (error) {
+    await request.body?.cancel().catch(() => {})
+    throw error
+  }
   debugJson(logger, `provider.images.${operation}.response`, {
     contentType: upstreamResponse.headers.get("content-type"),
     contentLength: upstreamResponse.headers.get("content-length"),
     provider,
     statusCode: upstreamResponse.status,
   })
-  return createProviderProxyResponse(upstreamResponse)
+  return observeImagesResponse(upstreamResponse, {
+    model: actualModel,
+    operation,
+    providerConfig,
+    onMetadata: (metadata) =>
+      debugJson(logger, `provider.images.${operation}.response.body`, {
+        provider,
+        ...metadata,
+      }),
+  })
 }
 
 /** Forwards translated xAI requests and normalizes OpenAI-compatible output. */
@@ -63,21 +84,27 @@ export async function forwardXaiImagesWithLogging(
   operation: CodexImagesOperation,
   payload: Record<string, unknown>,
   { logger, provider }: ProviderImagesForwardLogContext,
+  body?: ReadableStream<Uint8Array>,
 ): Promise<Response> {
   const upstreamRequest = new Request(request.url, {
-    body: JSON.stringify(payload),
+    body: body ?? new TextEncoder().encode(JSON.stringify(payload)),
+    duplex: "half",
     headers: {
       accept: "application/json",
       "content-type": "application/json",
     },
     method: "POST",
     signal: request.signal,
-  })
+  } as RequestInit)
   const upstreamResponse = await forwardProviderImagesWithLogging(
     providerConfig,
     upstreamRequest,
     operation,
-    { logger, provider },
+    {
+      logger,
+      provider,
+      model: typeof payload.model === "string" ? payload.model : "unknown",
+    },
   )
   return await ensureImageResponseB64Json(upstreamResponse, undefined, {
     clientSignal: request.signal,

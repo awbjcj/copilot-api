@@ -114,13 +114,13 @@ function resolveUserId(input: TokenUsageEventInput): string {
 function toPersistedEvent(
   input: TokenUsageEventInput,
 ): PersistedTokenUsageEvent | null {
-  if (!hasAnyToken(input)) {
+  const now = new Date()
+  const cost = resolveTokenUsageCost({ ...input, at: now })
+  if (!hasAnyToken(input) && !cost) {
     return null
   }
 
-  const now = new Date()
   const timing = requestContext.getStore()?.requestTiming
-  const cost = resolveTokenUsageCost({ ...input, at: now })
   return {
     request_id: timing?.id ?? null,
     first_token_ms: timing?.firstTokenMs ?? null,

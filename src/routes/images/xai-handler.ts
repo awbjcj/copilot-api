@@ -1,11 +1,12 @@
 import type { Context } from "hono"
+import { setPluginRequestModel } from "~/lib/request-events"
 
 import { forwardXaiImagesWithLogging } from "~/routes/images/forward-provider-images"
 import { imageRouteDependencies, logger } from "~/routes/images/shared"
+import { translateXaiImageJsonRequest } from "~/routes/images/xai-json-request"
 import type { CodexImagesOperation } from "~/services/codex/images"
 import {
   translateXaiImageEditJson,
-  translateXaiImageGeneration,
   XaiImagesRequestError,
 } from "~/services/xai/images"
 
@@ -26,28 +27,16 @@ export function xaiImagesRequestErrorResponse(
   )
 }
 
-async function readJsonBody(
-  request: Request,
-  message: string,
-): Promise<unknown> {
-  try {
-    const body = new TextDecoder("utf-8", { fatal: true }).decode(
-      new Uint8Array(await request.arrayBuffer()),
-    )
-    return JSON.parse(body)
-  } catch {
-    throw new XaiImagesRequestError(message)
-  }
-}
-
 async function forwardTranslatedXaiImages(
   c: Context,
   operation: CodexImagesOperation,
   payload: Record<string, unknown>,
+  body?: ReadableStream<Uint8Array>,
 ): Promise<Response> {
   const providerConfig =
     await imageRouteDependencies.resolveProviderConfig("xai")
   if (!providerConfig) {
+    await body?.cancel()
     return c.json(
       {
         error: {
@@ -65,6 +54,7 @@ async function forwardTranslatedXaiImages(
     operation,
     payload,
     { logger, provider: "xai" },
+    body,
   )
 }
 
@@ -72,11 +62,18 @@ export async function handleXaiImageGeneration(
   c: Context,
   model: string,
 ): Promise<Response> {
-  const payload = translateXaiImageGeneration(
-    await readJsonBody(c.req.raw, "Image generation body must be JSON"),
+  const translated = await translateXaiImageJsonRequest(
+    c.req.raw,
+    "generations",
     model,
   )
-  return await forwardTranslatedXaiImages(c, "generations", payload)
+  setPluginRequestModel(translated.requestedModel)
+  return await forwardTranslatedXaiImages(
+    c,
+    "generations",
+    translated.payload,
+    translated.body,
+  )
 }
 
 export async function handleXaiImageEdit(
@@ -84,10 +81,28 @@ export async function handleXaiImageEdit(
   model: string,
   multipartPayload?: Record<string, unknown>,
 ): Promise<Response> {
-  const payload = translateXaiImageEditJson(
-    multipartPayload
-      ?? (await readJsonBody(c.req.raw, "Image edit body must be JSON")),
+  if (multipartPayload) {
+    setPluginRequestModel(
+      typeof multipartPayload.model === "string" ?
+        multipartPayload.model
+      : model,
+    )
+    return await forwardTranslatedXaiImages(
+      c,
+      "edits",
+      translateXaiImageEditJson(multipartPayload, model),
+    )
+  }
+  const translated = await translateXaiImageJsonRequest(
+    c.req.raw,
+    "edits",
     model,
   )
-  return await forwardTranslatedXaiImages(c, "edits", payload)
+  setPluginRequestModel(translated.requestedModel)
+  return await forwardTranslatedXaiImages(
+    c,
+    "edits",
+    translated.payload,
+    translated.body,
+  )
 }

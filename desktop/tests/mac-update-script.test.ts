@@ -12,6 +12,9 @@ import path from 'node:path'
 
 import { macInstallScript } from '../electron/mac-update-install'
 
+// Exercises real POSIX shell commands and renames; Windows cannot run this flow.
+const describeOnPosix = describe.skipIf(process.platform === 'win32')
+
 let directory: string
 beforeEach(async () => {
   directory = await mkdtemp(path.join(os.tmpdir(), 'mac-update-script-'))
@@ -103,7 +106,7 @@ exec /bin/mv "$@"
   return { app, staging, backup, state, exitCode, opened }
 }
 
-describe('macOS detached installation shell', () => {
+describeOnPosix('macOS detached installation shell', () => {
   test('relaunches the unchanged old app and removes staging if backup fails', async () => {
     const result = await runInstaller({ failMove: 'backup' })
     expect(result.exitCode).toBe(1)

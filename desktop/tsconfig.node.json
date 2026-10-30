@@ -70,6 +70,7 @@
     "../src/lib/subagent.ts",
     "../src/lib/timeout-dispatcher.ts",
     "../src/lib/token.ts",
+    "../src/lib/token-usage/image-pricing.ts",
     "../src/lib/token-usage/peak-windows.ts",
     "../src/lib/token-usage/pricing.ts",
     "../src/lib/token-usage/store.ts",
