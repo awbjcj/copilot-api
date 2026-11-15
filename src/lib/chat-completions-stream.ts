@@ -28,7 +28,14 @@ export async function* guardChatCompletionsStream(
         // JSON-only errors also need an event type for request outcome tracking.
         yield { message: { ...chunk, event: "error" }, completion: null }
       } else {
-        yield { message: chunk, completion: data as ChatCompletionChunk | null }
+        const completion = addMissingObjectDiscriminator(data)
+        yield {
+          message:
+            completion === data ? chunk : (
+              { ...chunk, data: JSON.stringify(completion) }
+            ),
+          completion: completion as ChatCompletionChunk | null,
+        }
       }
     }
   } catch (error) {
@@ -48,6 +55,22 @@ export async function* guardChatCompletionsStream(
       "Upstream chat completion stream ended before [DONE], retry your request.",
     )
   }
+}
+
+function addMissingObjectDiscriminator(data: unknown): unknown {
+  if (
+    typeof data !== "object"
+    || data === null
+    || Array.isArray(data)
+    || "object" in data
+    || !("id" in data && typeof data.id === "string")
+    || !("created" in data && typeof data.created === "number")
+    || !("model" in data && typeof data.model === "string")
+    || !("choices" in data && Array.isArray(data.choices))
+  )
+    return data
+
+  return { ...data, object: "chat.completion.chunk" }
 }
 
 function isErrorEvent(event: string | undefined, data: unknown): boolean {

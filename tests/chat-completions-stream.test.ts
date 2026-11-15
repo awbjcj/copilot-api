@@ -24,6 +24,27 @@ const collect = async (
 }
 
 describe("native chat completion stream completion checks", () => {
+  test("adds the required object discriminator to upstream completion chunks", async () => {
+    const upstream = {
+      id: "chatcmpl-live",
+      created: 123,
+      model: "claude-test",
+      choices: [{ index: 0, delta: { content: "hello" } }],
+      copilot_usage: { total_nano_aiu: 42 },
+    }
+    const chunks = [
+      { id: "event-1", data: JSON.stringify(upstream) },
+      { data: "[DONE]" },
+    ]
+    const result = await collect(chunks)
+    expect(result[0].id).toBe("event-1")
+    expect(JSON.parse(result[0].data ?? "")).toEqual({
+      ...upstream,
+      object: "chat.completion.chunk",
+    })
+    expect(result[1]).toEqual(chunks[1])
+  })
+
   test("returns the parsed completion and parses each data chunk only once", async () => {
     const completion: ChatCompletionChunk = {
       id: "chatcmpl-test",
