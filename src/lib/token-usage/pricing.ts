@@ -5,7 +5,10 @@ import {
   usesModelsDevModelCatalog,
 } from "../provider-model-catalog"
 import type { TokenUsagePeakWindow } from "./peak-windows"
-import { resolveBuiltinImageCost } from "./image-pricing"
+import {
+  resolveBuiltinImageCost,
+  hasBuiltinImagePricing,
+} from "./image-pricing"
 import {
   normalizeToken,
   type TokenUsageEndpoint,
@@ -62,6 +65,8 @@ const COST_NANOS_PER_TOKEN_AT_ONE_PER_MILLION = 1_000
 const COPILOT_NANO_AIU_PER_USD = 100_000_000_000
 const COPILOT_NANO_AIU_TO_COST_NANOS =
   COST_NANOS_PER_UNIT / COPILOT_NANO_AIU_PER_USD
+// The GPT-6.2 Ultrafast promotion ends at midnight Pacific time on March 1.
+const CODEX_GPT_62_ULTRAFAST_PROMOTION_END = Date.UTC(2027, 2, 1, 8)
 const BUILTIN_PROVIDER_CURRENCIES: Record<string, string> = {
   codex: "USD",
   dashscope: "CNY",
@@ -82,12 +87,7 @@ export function resolveTokenUsageCost(
       total_cost_nanos: Math.round(cost * COST_NANOS_PER_UNIT),
     }
   }
-  if (
-    input.source === "provider"
-    && ["openrouter", "xai"].includes(
-      input.providerName?.trim().toLowerCase() ?? "",
-    )
-  ) {
+  if (input.source === "provider") {
     const reportedCost = resolveReportedProviderCost(input)
     if (reportedCost) {
       return reportedCost
@@ -121,10 +121,11 @@ export function resolveTokenUsageCost(
     return null
   }
 
+  const at = resolvePricingTime(input.at)
   const pricing = resolvePricingTier(
     resolvedPricing.pricing,
     getInputTokenTotal(input),
-    resolvePricingTime(input.at),
+    at,
   )
   const currency =
     resolvedPricing.currency
@@ -144,12 +145,16 @@ export function resolveTokenUsageCost(
     + costNanosForTokens(input.cache_read_input_tokens, cacheReadPrice)
     + costNanosForTokens(input.cache_creation_input_tokens, cacheCreationPrice)
   const totalCostNanos = Math.round(
-    baseCostNanos * resolveCodexServiceTierMultiplier(input, providerName),
+    baseCostNanos * resolveCodexServiceTierMultiplier(input, providerName, at),
   )
-
-  if (totalCostNanos <= 0) {
+  if (
+    totalCostNanos <= 0
+    && !(
+      inputPrice === 0
+      && (outputPrice === 0 || input.endpoint === "embeddings")
+    )
+  )
     return null
-  }
 
   return {
     currency,
@@ -161,19 +166,25 @@ export function resolveTokenUsageCost(
 function resolveCodexServiceTierMultiplier(
   input: TokenUsageCostInput,
   providerName: string,
+  at: Date,
 ): number {
   if (providerName.toLowerCase() !== "codex") {
     return 1
   }
 
   // Price-estimate multipliers, applied after selecting the context rates.
-  // https://developers.openai.com/api/docs/pricing
+  // https://help.openai.com/en/articles/20001415-chatgpt-rate-card-enterprise-token-based-pricing
   switch (input.serviceTier?.trim().toLowerCase()) {
     case "priority":
     case "fast":
       return 2
-    case "ultrafast":
-      return 6
+    case "ultrafast": {
+      const model = input.model.trim().toLowerCase()
+      const hasPromotionalRate =
+        (model === "gpt-6.2-sol" || model === "gpt-6.2-astra")
+        && at.getTime() < CODEX_GPT_62_ULTRAFAST_PROMOTION_END
+      return hasPromotionalRate ? 3 : 6
+    }
     default:
       return 1
   }
@@ -205,21 +216,86 @@ export function xaiUsdTicksToCost(value: unknown): number | undefined {
     : undefined
 }
 
+// Admission uses the same pricing sources as settlement. Providers with
+// normalized, reported USD costs do not need an estimated token price.
+export function getTokenUsagePricingCurrency(
+  input: Pick<
+    TokenUsageCostInput,
+    | "model"
+    | "source"
+    | "providerName"
+    | "pricing"
+    | "pricingCurrency"
+    | "endpoint"
+  > & { baseUrl?: string },
+): string | null {
+  const provider = input.providerName ?? "github-copilot"
+  // Embeddings currently report tokens but no Copilot AIU charge.
+  if (input.source === "copilot" && input.endpoint === "embeddings") return null
+  if (input.endpoint === "alpha_search") {
+    if (provider === "codex") return "USD"
+    return (
+        provider === "deepseek"
+          && /^https:\/\/api\.deepseek\.com(?:\/anthropic)?(?:\/v1)?\/?$/u.test(
+            input.baseUrl ?? "",
+          )
+      ) ?
+        (input.pricingCurrency ?? "CNY").toUpperCase()
+      : null
+  }
+  if (
+    input.source === "copilot"
+    || provider === "xai"
+    || provider === "openrouter"
+  )
+    return "USD"
+  if (input.endpoint === "videos_generations") return null
+  if (
+    input.endpoint === "images_generations"
+    || input.endpoint === "images_edits"
+  ) {
+    if (
+      provider === "codex"
+      && !input.pricing
+      && hasBuiltinImagePricing(input.model)
+    )
+      return "USD"
+  }
+  const resolved = resolveProviderPricing(provider, input.model, input.pricing)
+  if (!resolved) return null
+  const tiers =
+    resolved.pricing.tiers?.length ? resolved.pricing.tiers : [resolved.pricing]
+  const rates = tiers.map((tier) => ({ ...resolved.pricing, ...tier }))
+  if (resolved.pricing.offPeak && resolved.pricing.peakWindows?.length)
+    rates.push(
+      ...rates.map((tier) => ({ ...tier, ...resolved.pricing.offPeak })),
+    )
+  if (
+    rates.some(
+      (tier) =>
+        normalizePrice(tier.input ?? resolved.pricing.input) === null
+        || (input.endpoint !== "embeddings"
+          && normalizePrice(tier.output ?? resolved.pricing.output) === null),
+    )
+  )
+    return null
+  return (
+    resolved.currency
+    ?? resolveProviderCurrency(provider, input.pricingCurrency)
+  )
+}
+
 function resolveCopilotCost(
   input: TokenUsageCostInput,
 ): CalculatedTokenUsageCost | null {
-  const totalNanoAiu = normalizeToken(input.total_nano_aiu)
-  if (totalNanoAiu <= 0) {
+  const totalNanoAiu = normalizePrice(input.total_nano_aiu)
+  if (totalNanoAiu === null) {
     return null
   }
 
   const totalCostNanos = Math.round(
     totalNanoAiu * COPILOT_NANO_AIU_TO_COST_NANOS,
   )
-  if (totalCostNanos <= 0) {
-    return null
-  }
-
   return {
     currency: "USD",
     source: "copilot_aiu",

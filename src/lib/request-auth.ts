@@ -3,6 +3,8 @@ import type { Context, MiddlewareHandler } from "hono"
 import consola from "consola"
 
 import { getConfig } from "./config"
+import { normalizeApiKeyRecords, isApiKeyActive } from "./api-key-config"
+import { requestContext } from "./request-context"
 
 interface AuthMiddlewareOptions {
   getApiKeys?: () => Array<string>
@@ -36,7 +38,9 @@ export function normalizeApiKeys(apiKeys: unknown): Array<string> {
 
 export function getConfiguredApiKeys(): Array<string> {
   const config = getConfig()
-  return normalizeApiKeys(config.auth?.apiKeys)
+  return normalizeApiKeyRecords(config.auth?.apiKeyConfigs).map(
+    (entry) => entry.key,
+  )
 }
 
 export function getMissingApiKeysMessage(): string | null {
@@ -64,6 +68,13 @@ export function getConfiguredAdminApiKeys(): Array<string> {
   const config = getConfig()
   const adminApiKey = normalizeApiKey(config.auth?.adminApiKey)
   return adminApiKey ? [adminApiKey] : []
+}
+
+export function getIsolatedApiKeyId(): string | undefined {
+  const id = requestContext.getStore()?.apiKey?.id
+  return id !== undefined && getConfig().auth?.isolateApiKeyUsage === true ?
+      id
+    : undefined
 }
 
 export function extractRequestApiKey(c: Context): string | null {
@@ -102,35 +113,47 @@ function createUnauthorizedResponse(c: Context): Response {
 export function createAuthMiddleware(
   options: AuthMiddlewareOptions = {},
 ): MiddlewareHandler {
-  const getApiKeys = options.getApiKeys ?? getConfiguredApiKeys
+  // The configured-key reader uses managed policies even when passed explicitly.
+  const getApiKeys =
+    options.getApiKeys === getConfiguredApiKeys ? undefined : options.getApiKeys
   const allowUnauthenticatedPaths = options.allowUnauthenticatedPaths ?? ["/"]
   const allowOptionsBypass = options.allowOptionsBypass ?? true
   const allowWhenNoApiKeys = options.allowWhenNoApiKeys ?? true
   const shouldSkipPath = options.shouldSkipPath ?? (() => false)
 
   return async (c, next) => {
-    if (allowOptionsBypass && c.req.method === "OPTIONS") {
+    if (
+      (allowOptionsBypass && c.req.method === "OPTIONS")
+      || shouldSkipPath(c.req.path)
+      || allowUnauthenticatedPaths.includes(c.req.path)
+    ) {
       return next()
     }
 
-    if (shouldSkipPath(c.req.path)) {
-      return next()
-    }
-
-    if (allowUnauthenticatedPaths.includes(c.req.path)) {
-      return next()
-    }
-
-    const apiKeys = getApiKeys()
+    const auth = getApiKeys ? undefined : getConfig().auth
+    const apiKeys =
+      getApiKeys ? getApiKeys() : normalizeApiKeyRecords(auth?.apiKeyConfigs)
     if (apiKeys.length === 0) {
       return allowWhenNoApiKeys ? next() : createUnauthorizedResponse(c)
     }
 
     const requestApiKey = extractRequestApiKey(c)
-    if (!requestApiKey || !apiKeys.includes(requestApiKey)) {
-      return createUnauthorizedResponse(c)
-    }
+    if (!requestApiKey) return createUnauthorizedResponse(c)
 
+    const key = apiKeys.find((entry) => {
+      if (typeof entry === "string") return entry === requestApiKey
+      return !getApiKeys && entry.key === requestApiKey
+    })
+    if (key === undefined) return createUnauthorizedResponse(c)
+    if (typeof key === "string") return next()
+    if (!isApiKeyActive(key)) return createUnauthorizedResponse(c)
+
+    const context = requestContext.getStore()
+    if (context) context.apiKey = key
+    c.header(
+      "X-API-Key-Usage-Isolated",
+      String(auth?.isolateApiKeyUsage === true),
+    )
     return next()
   }
 }
