@@ -1163,11 +1163,16 @@ describe('desktop saves automatically refresh the running gateway', () => {
   })
 
   test('restarts automatically when a server startup setting changes', async () => {
+    startServer.mockImplementationOnce((port, options) => {
+      expect(settings.host).not.toBe('0.0.0.0')
+      return Promise.resolve({ running: true, port, host: options?.host })
+    })
     await invoke('settings:save', { ...settings, host: '0.0.0.0' })
     expect(startServer).toHaveBeenCalledWith(
       4141,
       expect.objectContaining({ host: '0.0.0.0' }),
     )
+    expect(settings.host).toBe('0.0.0.0')
     expect(fetch).toHaveBeenCalledTimes(1)
   })
 
@@ -1177,6 +1182,24 @@ describe('desktop saves automatically refresh the running gateway', () => {
     expect(fetch).toHaveBeenCalledTimes(1)
   })
 
+  test('uses the replacement admin key after a settings callback fails', async () => {
+    registerIpcHandlers({ once: () => {} } as unknown as BrowserWindow, {
+      onSettingsChange: () => Promise.reject(new Error('Tray refresh failed')),
+    })
+    await invoke('config:save-provider-management', {})
+    keys.adminApiKey = 'restarted-admin'
+
+    await expect(
+      invoke('settings:save', { ...settings, host: '0.0.0.0' }),
+    ).rejects.toThrow('Tray refresh failed')
+    expect(settings.host).toBe('0.0.0.0')
+    expect(startServer).toHaveBeenCalledTimes(1)
+    expect(fetch).toHaveBeenCalledTimes(1)
+
+    await invoke('config:save-provider-management', {})
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
   test('does not start a stopped service after saving startup settings', async () => {
     running = false
     await invoke('settings:save', { ...settings, host: '0.0.0.0' })
@@ -1184,11 +1207,52 @@ describe('desktop saves automatically refresh the running gateway', () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
-  test('reports a failed automatic restart', async () => {
+  test('keeps the old settings and service when the restart preflight fails', async () => {
+    const previous = settings
     restartError = 'address unavailable'
     await expect(
       invoke('settings:save', { ...settings, host: '0.0.0.0' }),
     ).rejects.toThrow('address unavailable')
+    expect(settings).toEqual(previous)
+    expect(settingsStore.writeSettings).not.toHaveBeenCalled()
+    expect(startServer).toHaveBeenCalledTimes(1)
+    expect(running).toBe(true)
+  })
+
+  test('restores the old listener when the replacement process fails', async () => {
+    const previous = settings
+    startServer.mockImplementationOnce(() => {
+      running = false
+      return Promise.resolve({ running: false, error: 'replacement failed' })
+    })
+    await expect(
+      invoke('settings:save', { ...settings, host: '0.0.0.0' }),
+    ).rejects.toThrow('replacement failed')
+    expect(startServer).toHaveBeenCalledTimes(2)
+    expect(startServer).toHaveBeenLastCalledWith(
+      4141,
+      expect.objectContaining({
+        host: '127.0.0.1',
+        runtime: previous.serverRuntime,
+      }),
+    )
+    expect(settingsStore.writeSettings).not.toHaveBeenCalled()
+    expect(running).toBe(true)
+  })
+
+  test('restores the old listener when saving the new settings fails', async () => {
+    spyOn(settingsStore, 'writeSettings').mockRejectedValueOnce(
+      new Error('write failed'),
+    )
+    await expect(
+      invoke('settings:save', { ...settings, host: '0.0.0.0' }),
+    ).rejects.toThrow('write failed')
+    expect(startServer).toHaveBeenCalledTimes(2)
+    expect(startServer).toHaveBeenLastCalledWith(
+      4141,
+      expect.objectContaining({ host: '127.0.0.1' }),
+    )
+    expect(running).toBe(true)
   })
 })
 
