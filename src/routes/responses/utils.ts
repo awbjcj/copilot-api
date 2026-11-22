@@ -11,7 +11,7 @@ import type {
   ResponsesTransport,
 } from "~/lib/types/responses"
 
-import { COMPACT_REQUEST, type CompactType } from "~/lib/compact"
+import { COMPACT_REQUEST, type CompactType } from "~/lib/http/compact"
 import {
   getModelResponsesApiCompactThreshold as getConfiguredModelResponsesApiCompactThreshold,
   isContextManagementEnabledForMessages as isConfiguredContextManagementEnabledForMessages,
@@ -22,7 +22,7 @@ import {
 import {
   resolveSupportedReasoningEffort,
   type ResponsesReasoningEffort,
-} from "~/lib/reasoning-effort"
+} from "~/lib/catalog/reasoning-effort"
 
 import {
   decodeMessagesCompaction,
@@ -602,8 +602,12 @@ const containsVisionContent = (value: unknown): boolean => {
     return true
   }
 
-  if (Array.isArray(record.content)) {
-    return record.content.some((entry) => containsVisionContent(entry))
+  if (Array.isArray(record.content) && containsVisionContent(record.content)) {
+    return true
+  }
+
+  if (Array.isArray(record.output) && containsVisionContent(record.output)) {
+    return true
   }
 
   return false

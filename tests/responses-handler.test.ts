@@ -94,7 +94,7 @@ const createMessagesResponse = (
 
 const { state } = await import("~/lib/state")
 const { closeUsageStore } = await import("~/lib/token-usage")
-const { traceIdMiddleware } = await import("~/lib/trace")
+const { traceIdMiddleware } = await import("~/lib/http/trace")
 const { tokenUsageRoute } = await import("~/routes/token-usage/route")
 const { responsesHandlerDependencies } = await import(
   "~/routes/responses/handler"
@@ -2228,6 +2228,48 @@ describe("responses handler token usage", () => {
         role: "user",
       },
     ])
+  })
+
+  test("enables vision header option when input images appear only in tool call outputs", async () => {
+    createResponses.mockImplementation((payload) =>
+      Promise.resolve(createResponsesResult(payload.model)),
+    )
+
+    const app = createApp()
+    const response = await app.request("/v1/responses", {
+      body: JSON.stringify({
+        input: [
+          {
+            content: [{ text: "take a screenshot", type: "input_text" }],
+            role: "user",
+          },
+          {
+            call_id: "call_vision_1",
+            output: [
+              {
+                detail: "low",
+                image_url: `data:image/png;base64,${"A".repeat(8)}`,
+                type: "input_image",
+              },
+            ],
+            status: "completed",
+            type: "function_call_output",
+          },
+        ],
+        model: "gpt-test",
+      }),
+      headers: {
+        "content-type": "application/json",
+      },
+      method: "POST",
+    })
+
+    expect(response.status).toBe(200)
+    expect(createResponses).toHaveBeenCalledTimes(1)
+    expect(createResponses.mock.calls[0][1]).toMatchObject({
+      initiator: "agent",
+      vision: true,
+    })
   })
 
   test("records usage from failed streaming responses and falls back to interaction id", async () => {

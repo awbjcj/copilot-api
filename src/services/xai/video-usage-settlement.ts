@@ -1,10 +1,10 @@
 import consola from "consola"
 
-import { resolveProviderConfig } from "~/lib/provider-resolver"
+import { resolveProviderConfig } from "~/lib/providers/provider-resolver"
 import {
   deferVideoUsageJob,
   getDueVideoUsageJobs,
-} from "~/lib/token-usage/store"
+} from "~/lib/video-settlement"
 import { recordVideoResultUsage } from "~/lib/token-usage/videos"
 
 import { forwardXaiVideos } from "./videos"
@@ -30,15 +30,17 @@ export async function settlePendingVideoUsage(
       try {
         if (!(await deferVideoUsageJob(job, now + VIDEO_USAGE_RETRY_DELAY_MS)))
           return
+        const pollSignal = AbortSignal.any([
+          signal,
+          AbortSignal.timeout(VIDEO_USAGE_REQUEST_TIMEOUT_MS),
+        ])
         const request = new Request("http://localhost/", {
-          signal: AbortSignal.any([
-            signal,
-            AbortSignal.timeout(VIDEO_USAGE_REQUEST_TIMEOUT_MS),
-          ]),
+          signal: pollSignal,
         })
         const response = await forwardXaiVideos(providerConfig, request, {
           operation: "result",
           requestId: job.request_id,
+          signal: pollSignal,
         })
         try {
           await recordVideoResultUsage(response, {

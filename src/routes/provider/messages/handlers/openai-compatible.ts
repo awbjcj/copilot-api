@@ -14,17 +14,17 @@ import type {
 } from "~/lib/types/chat-completions"
 
 import { type ModelConfig, type ResolvedProviderConfig } from "~/lib/config"
-import { getProviderModelConfig } from "~/lib/provider-model-catalog"
+import { getProviderModelConfig } from "~/lib/catalog/provider-model-catalog"
 import {
   applyDashScopePreserveThinkingDefault,
   applyOpenAICompatibleContextCache,
   isDashScopeAliyunProvider,
-} from "~/lib/dashscope"
-import { HTTPError } from "~/lib/error"
-import { recordChatCompletionFirstToken } from "~/lib/first-token"
+} from "~/lib/providers/dashscope"
+import { HTTPError } from "~/lib/http/error"
+import { recordChatCompletionFirstToken } from "~/lib/http/first-token"
 import { debugJson, debugLazy } from "~/lib/logger"
-import { getProviderModelPdfSupport } from "~/lib/model-pdf-support"
-import { writeSSEIfConnected } from "~/lib/sse"
+import { getProviderModelPdfSupport } from "~/lib/catalog/model-pdf-support"
+import { writeSSEIfConnected } from "~/lib/http/sse"
 import {
   normalizeOpenAIUsage,
   type TokenUsageEndpoint,
@@ -204,7 +204,11 @@ export const createOpenAICompatiblePayload = (
     providerConfig,
   )
 
-  if (!Object.hasOwn(openAIPayload, "parallel_tool_calls")) {
+  if (
+    Array.isArray(openAIPayload.tools)
+    && openAIPayload.tools.length > 0
+    && !Object.hasOwn(openAIPayload, "parallel_tool_calls")
+  ) {
     openAIPayload.parallel_tool_calls = true
   }
 

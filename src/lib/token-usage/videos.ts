@@ -1,13 +1,13 @@
 import type { ResolvedProviderConfig } from "~/lib/config"
-import { requestContext } from "~/lib/request-context"
+import { requestContext } from "~/lib/http/request-context"
 
 import { recordTokenUsageEvent, resolveTokenUsageSessionId } from "./index"
 import { xaiUsdTicksToCost } from "./pricing"
+import type { VideoUsageJob } from "~/lib/types/token-usage"
 import {
   saveVideoUsageJob,
   stopPollingVideoUsageJob,
-  type VideoUsageJob,
-} from "./store"
+} from "~/lib/video-settlement"
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -33,7 +33,17 @@ export async function recordVideoResultUsage(
     return
   }
   if (options.operation !== "generations") options.onBody?.(body)
-  if (!response.ok) return
+  const job = options.job
+  if (!response.ok) {
+    if (
+      job
+      && !job.settled
+      && (response.status === 404 || response.status === 410)
+    ) {
+      await stopPollingVideoUsageJob(job)
+    }
+    return
+  }
 
   let result: unknown
   try {
@@ -61,15 +71,20 @@ export async function recordVideoResultUsage(
     }
     return
   }
-  const job = options.job
   if (job?.settled) return
   if (job && (result.status === "failed" || result.status === "expired")) {
     await stopPollingVideoUsageJob(job)
     return
   }
-  if (result.status !== "done" || !isRecord(result.usage)) return
-  const cost = xaiUsdTicksToCost(result.usage.cost_in_usd_ticks)
-  if (cost === undefined) return
+  if (result.status !== "done") return
+  const cost =
+    isRecord(result.usage) ?
+      xaiUsdTicksToCost(result.usage.cost_in_usd_ticks)
+    : undefined
+  if (cost === undefined) {
+    if (job) await stopPollingVideoUsageJob(job)
+    return
+  }
 
   recordTokenUsageEvent({
     apiKey:

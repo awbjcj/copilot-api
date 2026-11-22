@@ -9,9 +9,9 @@ import {
   invalidateConfigCache,
   type ResolvedProviderConfig,
 } from "~/lib/config"
-import { PATHS } from "~/lib/paths"
-import { requestContext } from "~/lib/request-context"
-import { openSqliteDatabase } from "~/lib/sqlite"
+import { PATHS } from "~/lib/storage/paths"
+import { requestContext } from "~/lib/http/request-context"
+import { openSqliteDatabase } from "~/lib/storage/sqlite"
 import { state } from "~/lib/state"
 import {
   closeUsageStore,
@@ -309,6 +309,83 @@ describe("video routes", () => {
     await settlePendingVideoUsage(new AbortController().signal)
     expect(getUpstreamUrl(0)).toBe("https://api.x.ai/v1/videos/legacy-job")
     expect((await getApiKeyQuotaUsage(key)).usedAmount).toBe(1.13)
+  })
+
+  test("aborts in-flight settlement fetches on shutdown and stops polling on 404 or unbilled done results", async () => {
+    await saveVideoUsageJob({
+      provider_name: "xai",
+      request_id: "job-404",
+      api_key_id: "owner",
+      api_key_name: null,
+      model: doneResult.model,
+      trace_id: "trace-404",
+      session_id: "session-404",
+    })
+    await saveVideoUsageJob({
+      provider_name: "xai",
+      request_id: "job-unbilled-done",
+      api_key_id: "owner",
+      api_key_name: null,
+      model: doneResult.model,
+      trace_id: "trace-unbilled",
+      session_id: "session-unbilled",
+    })
+
+    const pollTime = Date.now() + 10_000
+    fetchMock.mockImplementation((input) => {
+      const url = input instanceof Request ? input.url : input.toString()
+      if (url.endsWith("/job-404")) {
+        return Promise.resolve(new Response("Not found", { status: 404 }))
+      }
+      return Promise.resolve(
+        Response.json({ status: "done", model: doneResult.model, usage: {} }),
+      )
+    })
+
+    await settlePendingVideoUsage(new AbortController().signal, pollTime)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+
+    // Neither terminal job should be polled again on subsequent cycles.
+    await settlePendingVideoUsage(
+      new AbortController().signal,
+      pollTime + 120_000,
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+
+    // Verify an in-flight settlement fetch aborts when the settlement signal aborts.
+    await saveVideoUsageJob({
+      provider_name: "xai",
+      request_id: "job-hung",
+      api_key_id: "owner",
+      api_key_name: null,
+      model: doneResult.model,
+      trace_id: "trace-hung",
+      session_id: "session-hung",
+    })
+    let inFlightSignal: AbortSignal | undefined
+    const fetchStarted = Promise.withResolvers<void>()
+    fetchMock.mockImplementation(
+      (_input, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          inFlightSignal = init?.signal ?? undefined
+          fetchStarted.resolve()
+          inFlightSignal?.addEventListener(
+            "abort",
+            () => reject(new Error("Settlement aborted")),
+            { once: true },
+          )
+        }),
+    )
+
+    const shutdownController = new AbortController()
+    const settlementPromise = settlePendingVideoUsage(
+      shutdownController.signal,
+      pollTime + 240_000,
+    )
+    await fetchStarted.promise
+    shutdownController.abort()
+    await settlementPromise
+    expect(inFlightSignal?.aborted).toBe(true)
   })
 
   test("persists native video costs in SQLite and usage summaries without tokens", async () => {
