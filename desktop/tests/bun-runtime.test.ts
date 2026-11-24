@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, mock, test } from 'bun:test'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -73,13 +73,16 @@ describe('Bun runtime detection', () => {
     ])
   })
 
-  test('skips nvm-windows 2 shim and launches the real Bun', async () => {
+  test('skips nvm-windows 2 Bun shims and preserves link mode', async () => {
     const nvmRoot = 'C:\\Users\\test\\AppData\\Local\\Author Software\\nvm'
     const installs = path.win32.join(nvmRoot, 'installs')
-    const shim = path.win32.join(nvmRoot, '.shim', 'bun.exe')
+    const shimDirectory = path.win32.join(nvmRoot, '.shim')
+    const junction = path.win32.join(nvmRoot, '.nodejs')
+    const shim = path.win32.join(shimDirectory, 'bun.exe')
+    const junctionBun = path.win32.join(junction, 'bun.exe')
+    const activeInstall = path.win32.join(installs, 'v24.22.2')
     const real = path.win32.join(
-      installs,
-      'v24.22.2',
+      activeInstall,
       'node_modules',
       'bun',
       'bin',
@@ -88,8 +91,8 @@ describe('Bun runtime detection', () => {
     const checked: string[] = []
     const options = {
       env: {
-        Path: [path.win32.join(nvmRoot, '.shim'), 'D:\\tools\\.shim'].join(';'),
-        NVM_SYMLINK: path.win32.join(nvmRoot, '.shim'),
+        Path: [junction, shimDirectory + '\\.', 'D:\\tools\\.shim'].join(';'),
+        NVM_SYMLINK: junction,
         LOCALAPPDATA: 'C:\\Users\\test\\AppData\\Local',
       },
       homeDir: 'C:\\Users\\test',
@@ -98,9 +101,13 @@ describe('Bun runtime detection', () => {
         if (directory === installs) return ['v24.22.2']
         throw new Error('ENOENT')
       },
+      resolveDirectory: async (directory: string) => {
+        expect(directory).toBe(junction)
+        return shimDirectory
+      },
       getVersion: async (candidate: string) => {
         checked.push(candidate)
-        if (candidate === real || candidate === shim) return '1.4.4'
+        if ([real, shim, junctionBun].includes(candidate)) return '1.4.4'
         throw new Error('ENOENT')
       },
     }
@@ -115,7 +122,134 @@ describe('Bun runtime detection', () => {
       path: real,
     })
     expect(checked).not.toContain(shim)
+    expect(checked).not.toContain(junctionBun)
+
+    expect(
+      await detectBunRuntime({
+        ...options,
+        resolveDirectory: async () => activeInstall,
+      }),
+    ).toEqual({
+      available: true,
+      version: '1.4.4',
+      path: junctionBun,
+    })
   })
+
+  test.each([
+    ['win32', 'D:\\工具 目录\\Bun', 'C:\\tools', 'bun.exe'],
+    ['linux', '/custom bun/bin', '/usr/local/bin', 'bun'],
+  ] as const)(
+    'uses COPILOT_API_BUN_DIR before automatic discovery on %s',
+    async (platform, directory, pathDirectory, binary) => {
+      const paths = platform === 'win32' ? path.win32 : path.posix
+      const executable = paths.join(directory, binary)
+      const getVersion = mock(async (_executable: string) => '1.4.4')
+      const readDirectory = mock(async () => [])
+
+      expect(
+        await detectBunRuntime({
+          env: {
+            COPILOT_API_BUN_DIR: ' "' + directory + '" ',
+            PATH: pathDirectory,
+          },
+          platform,
+          getVersion,
+          readDirectory,
+        }),
+      ).toEqual({ available: true, version: '1.4.4', path: executable })
+      expect(getVersion).toHaveBeenCalledTimes(1)
+      expect(getVersion).toHaveBeenCalledWith(executable)
+      expect(readDirectory).not.toHaveBeenCalled()
+    },
+  )
+
+  test.each([
+    ['relative', 'relative\\bin', null, false],
+    ['an NVM shim', 'D:\\nvm\\.shim\\.', '1.4.4', false],
+    ['missing', 'D:\\missing', null, true],
+    ['outdated', 'D:\\old-bun', '1.3.14', true],
+  ] as const)(
+    'falls back to PATH when COPILOT_API_BUN_DIR is %s',
+    async (_label, directory, version, probesConfiguredDirectory) => {
+      const configured = path.win32.join(directory, 'bun.exe')
+      const automatic = 'C:\\tools\\bun.exe'
+      const checked: string[] = []
+
+      expect(
+        await detectBunRuntime({
+          env: { COPILOT_API_BUN_DIR: directory, PATH: 'C:\\tools' },
+          platform: 'win32',
+          readDirectory: async () => [],
+          getVersion: async (candidate) => {
+            checked.push(candidate)
+            if (candidate === automatic) return '1.4.4'
+            if (candidate === configured && version) return version
+            throw new Error('ENOENT')
+          },
+        }),
+      ).toEqual({ available: true, version: '1.4.4', path: automatic })
+      expect(checked).toEqual(
+        probesConfiguredDirectory ? [configured, automatic] : [automatic],
+      )
+    },
+  )
+
+  if (process.platform === 'win32') {
+    test('skips a real .nodejs shim junction configured as the Bun directory', async () => {
+      const tempRoot = await fs.mkdtemp(
+        path.join(os.tmpdir(), 'copilot-nvm2-junction-'),
+      )
+      try {
+        const nvmRoot = path.join(tempRoot, 'Author Software', 'nvm')
+        const shimDir = path.join(nvmRoot, '.shim')
+        const nodejsJunction = path.join(nvmRoot, '.nodejs')
+        const customInstalls = path.join(tempRoot, 'custom-installs')
+        const realBun = path.join(
+          customInstalls,
+          'v24.22.2',
+          'node_modules',
+          'bun',
+          'bin',
+          'bun.exe',
+        )
+        await fs.mkdir(shimDir, { recursive: true })
+        await fs.mkdir(path.dirname(realBun), { recursive: true })
+        await fs.writeFile(path.join(shimDir, 'bun.exe'), '')
+        await fs.writeFile(realBun, '')
+        await fs.symlink(shimDir, nodejsJunction, 'junction')
+
+        const checked: string[] = []
+        const result = await detectBunRuntime({
+          env: {
+            COPILOT_API_BUN_DIR: nodejsJunction,
+            Path: path.dirname(realBun),
+          },
+          homeDir: tempRoot,
+          platform: 'win32',
+          getVersion: async (candidate) => {
+            checked.push(candidate)
+            if (
+              candidate === realBun
+              || candidate === path.join(nodejsJunction, 'bun.exe')
+            ) {
+              return '1.4.4'
+            }
+            throw new Error('ENOENT')
+          },
+        })
+
+        expect(result).toEqual({
+          available: true,
+          version: '1.4.4',
+          path: realBun,
+        })
+        expect(checked).not.toContain(path.join(nodejsJunction, 'bun.exe'))
+      } finally {
+        await fs.rm(tempRoot, { recursive: true, force: true })
+      }
+    })
+  }
 
   test('ignores relative BUN_INSTALL and handles an absent PATH', async () => {
     expect(
@@ -194,6 +328,12 @@ describe('Bun runtime detection', () => {
       'win32',
       { NVM_HOME: 'D:\\custom nvm' },
       'D:\\custom nvm',
+    ],
+    [
+      'Windows NVM_HOME installs',
+      'win32',
+      { NVM_HOME: 'D:\\nvm2' },
+      'D:\\nvm2\\installs',
     ],
     [
       'Windows APPDATA',

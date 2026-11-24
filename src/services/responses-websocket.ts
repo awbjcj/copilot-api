@@ -221,6 +221,25 @@ const runPooledWebSocketRequest = async function* <
     }
   }
   throwIfAborted(request.signal)
+  const previousEntry = websocketPool.get(poolKey)
+  const reusableExisting =
+    (
+      getPooledWebSocketActiveRequestCount(poolKey) === 0
+      && previousEntry
+      && !previousEntry.closed
+    ) ?
+      previousEntry
+    : undefined
+  let preflight: { payload: TPayload; message: string } | undefined
+  if (!reusableExisting && options.maxMessageBytes !== undefined) {
+    // A brand-new connection has no continuation state, so check size before opening it.
+    const prepared =
+      request.preparePayload?.(request.payload) ?? request.payload
+    const message = JSON.stringify(prepared)
+    const sizeError = getMessageSizeError(message, options.maxMessageBytes)
+    if (sizeError) throw sizeError
+    preflight = { payload: prepared, message }
+  }
   const { entry, pooled } = getPooledWebSocketRequestTarget(request, options)
   const release = acquirePooledWebSocketEntry(poolKey, entry, pooled)
   let interruption: PooledWebSocketEntry["interruption"]
@@ -240,6 +259,21 @@ const runPooledWebSocketRequest = async function* <
       reusable = true
       return
     }
+    const payload =
+      request.preparePayload?.(request.payload, entry) ?? request.payload
+    const message =
+      preflight && payload === preflight.payload ?
+        preflight.message
+      : JSON.stringify(payload)
+    const sizeError =
+      preflight && payload === preflight.payload ?
+        undefined
+      : getMessageSizeError(message, options.maxMessageBytes)
+    if (sizeError) {
+      // An unsent request leaves the existing socket and its checkpoint intact.
+      reusable = entry === previousEntry
+      throw sizeError
+    }
     if (pooled && interruptSignal) {
       interruption = createResponsesWebSocketInterruption(
         interruptSignal,
@@ -257,10 +291,6 @@ const runPooledWebSocketRequest = async function* <
       options,
     )
     messageStream.start()
-    const payload =
-      request.preparePayload?.(request.payload, entry) ?? request.payload
-    const message = JSON.stringify(payload)
-    assertMessageWithinLimit(message, options.maxMessageBytes)
     websocket.send(message)
     entry.interruption = interruption
     interruption?.start()
@@ -311,15 +341,15 @@ const runPooledWebSocketRequest = async function* <
   }
 }
 
-const assertMessageWithinLimit = (
+const getMessageSizeError = (
   message: string,
   maxMessageBytes: number | undefined,
-): void => {
+): ResponsesWebSocketMessageTooLargeError | undefined => {
   if (maxMessageBytes === undefined) return
 
   const messageBytes = Buffer.byteLength(message)
   if (messageBytes > maxMessageBytes) {
-    throw new ResponsesWebSocketMessageTooLargeError(
+    return new ResponsesWebSocketMessageTooLargeError(
       messageBytes,
       maxMessageBytes,
     )

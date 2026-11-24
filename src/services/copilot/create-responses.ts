@@ -33,9 +33,13 @@ import { HTTPError } from "~/lib/http/error"
 import { getResponsesContinuationSession } from "~/lib/responses-continuation"
 import { setPluginRequestActualModel } from "~/lib/http/request-context"
 import { state } from "~/lib/state"
-import { createWebSocketUrl } from "~/services/responses-websocket"
+import {
+  createWebSocketUrl,
+  ResponsesWebSocketMessageTooLargeError,
+} from "~/services/responses-websocket"
 import { createContinuableResponsesWebSocketStream } from "~/services/responses-websocket-continuation"
 import {
+  createResponsesErrorServerSentEventChunk,
   createResponsesSafeStream,
   decodeResponsesWebSocketChunk,
   encodePoolKeyPart,
@@ -44,9 +48,9 @@ import {
 import { createResponsesHttpEventStream } from "~/services/responses-http"
 import { fetchUpstreamWithLifecycle } from "~/services/upstream-http"
 
-// Copilot closes the Responses WebSocket with code 1009 (message too big) and
-// no terminal event for a message above 32 MiB.
-export const COPILOT_RESPONSES_WEBSOCKET_MAX_MESSAGE_BYTES = 32 * 1024 * 1024
+// Copilot can return a generic internal_error for messages above 16 MiB.
+export const COPILOT_RESPONSES_WEBSOCKET_MAX_MESSAGE_BYTES = 16 * 1024 * 1024
+const COPILOT_RESPONSES_HTTP_MAX_REQUEST_BYTES = 32 * 1024 * 1024
 const COPILOT_RESPONSES_MIN_OUTPUT_TOKENS = 16
 
 interface ResponsesRequestOptions {
@@ -58,6 +62,7 @@ interface ResponsesRequestOptions {
   compactType?: CompactType
   transport?: ResponsesTransport
   clientSignal?: AbortSignal
+  allowCompactionHttpFallback?: boolean
 }
 
 export const createResponses = async (
@@ -71,10 +76,14 @@ export const createResponses = async (
     compactType,
     transport = "http",
     clientSignal,
+    allowCompactionHttpFallback,
   }: ResponsesRequestOptions,
 ): Promise<CreateResponsesReturn> => {
   if (!state.copilotToken) throw new Error("Copilot token not found")
 
+  // Capture baseUrl alongside the auth headers so fallback never pairs an old
+  // token with a refreshed host.
+  const baseUrl = copilotBaseUrl(state)
   const headers: Record<string, string> = {
     ...copilotHeaders(state, requestId, vision),
     "x-initiator": initiator,
@@ -112,19 +121,38 @@ export const createResponses = async (
       upstreamPayload,
       headers,
       {
+        baseUrl,
         requestId,
         subagentMarker,
       },
     )
+    // A client-supplied parent may refer to history only the socket can see.
+    const canFallBack =
+      allowCompactionHttpFallback
+      && upstreamPayload.previous_response_id == null
     const stream = createPooledResponsesWebSocketStream(
       websocketRequest,
       clientSignal,
       getResponsesContinuationSession(),
+      canFallBack ?
+        () =>
+          streamOversizedCompactionOverHttp(
+            baseUrl,
+            upstreamPayload,
+            headers,
+            clientSignal,
+          )
+      : undefined,
     )
     return stream
   }
 
-  return await createHttpResponses(upstreamPayload, headers, clientSignal)
+  return await createHttpResponses(
+    baseUrl,
+    upstreamPayload,
+    headers,
+    clientSignal,
+  )
 }
 
 const omitUnsupportedCopilotInclude = (
@@ -150,27 +178,17 @@ const omitUnsupportedCopilotInclude = (
 }
 
 const createHttpResponses = async (
+  baseUrl: string,
   payload: ResponsesPayload,
   headers: Record<string, string>,
   clientSignal?: AbortSignal,
 ): Promise<CreateResponsesReturn> => {
-  const transportConfig = getUpstreamTransportConfig()
-  const response = await fetchUpstreamWithLifecycle(
-    `${copilotBaseUrl(state)}/responses`,
-    {
-      method: "POST",
-      headers,
-      body: JSON.stringify(payload),
-    },
-    {
-      clientSignal,
-      headersTimeoutMs: transportConfig.headersTimeoutMs,
-      streamInactivityTimeoutMs: transportConfig.streamInactivityTimeoutMs,
-    },
+  const response = await fetchHttpResponses(
+    baseUrl,
+    JSON.stringify(payload),
+    headers,
+    clientSignal,
   )
-
-  logCopilotRateLimits(response.headers)
-
   if (!response.ok) {
     consola.error("Failed to create responses", response)
     throw new HTTPError("Failed to create responses", response)
@@ -181,6 +199,80 @@ const createHttpResponses = async (
   }
 
   return (await response.json()) as ResponsesResult
+}
+
+const fetchHttpResponses = async (
+  baseUrl: string,
+  body: string,
+  headers: Record<string, string>,
+  clientSignal?: AbortSignal,
+): Promise<Response> => {
+  const transportConfig = getUpstreamTransportConfig()
+  const response = await fetchUpstreamWithLifecycle(
+    `${baseUrl}/responses`,
+    {
+      method: "POST",
+      headers,
+      body,
+    },
+    {
+      clientSignal,
+      headersTimeoutMs: transportConfig.headersTimeoutMs,
+      streamInactivityTimeoutMs: transportConfig.streamInactivityTimeoutMs,
+    },
+  )
+
+  logCopilotRateLimits(response.headers)
+  return response
+}
+
+const streamOversizedCompactionOverHttp = async function* (
+  baseUrl: string,
+  payload: ResponsesPayload,
+  headers: Record<string, string>,
+  clientSignal?: AbortSignal,
+): ResponsesStream {
+  const body = JSON.stringify(payload)
+  if (Buffer.byteLength(body) > COPILOT_RESPONSES_HTTP_MAX_REQUEST_BYTES) {
+    yield createResponsesErrorServerSentEventChunk(
+      "The Responses compaction request exceeds the 32.0 MiB GitHub Copilot HTTP limit. Reduce the conversation size or start a new one.",
+      "context_length_exceeded",
+    )
+    return
+  }
+
+  const response = await fetchHttpResponses(
+    baseUrl,
+    body,
+    headers,
+    clientSignal,
+  )
+  if (response.ok) {
+    yield* createResponsesHttpEventStream(response)
+    return
+  }
+
+  const text = (await response.text()).trim()
+  let error: { code?: unknown; message?: unknown } | undefined
+  try {
+    error = (JSON.parse(text) as { error?: typeof error } | null)?.error
+  } catch {
+    // Copilot may return a plain-text error.
+  }
+  const message =
+    (typeof error?.message === "string" && error.message.trim())
+    || text
+    || `Copilot Responses compaction failed (HTTP ${response.status}).`
+  // HTTP 413 always indicates an oversized request; normalize unknown upstream
+  // codes (such as request_too_large) so clients do not retry the same body.
+  const code =
+    response.status === 413 ?
+      "context_length_exceeded"
+    : (typeof error?.code === "string" && error.code.trim()) || null
+  consola.warn(
+    `Copilot Responses compaction HTTP fallback failed (status=${response.status}, code=${code ?? "none"})`,
+  )
+  yield createResponsesErrorServerSentEventChunk(message, code)
 }
 
 type ResponsesWebSocketPayload = ResponsesPayload & {
@@ -195,6 +287,7 @@ export const prepareResponsesWebSocketRequest = (
   payload: ResponsesPayload,
   preparedHeaders: Record<string, string>,
   options: {
+    baseUrl?: string
     requestId: string
     subagentMarker?: SubagentMarker | null
   },
@@ -205,7 +298,7 @@ export const prepareResponsesWebSocketRequest = (
     headers: copilotWebSocketHeaders(preparedHeaders),
     poolKey: buildResponsesWebSocketPoolKey(payload, options),
     payload: buildResponsesWebSocketPayload(payload, initiator),
-    url: buildResponsesWebSocketUrl(copilotBaseUrl(state)),
+    url: buildResponsesWebSocketUrl(options.baseUrl ?? copilotBaseUrl(state)),
   }
 }
 
@@ -248,9 +341,10 @@ const createPooledResponsesWebSocketStream = (
   request: ResponsesWebSocketRequest,
   clientSignal?: AbortSignal,
   continuationSession?: string,
+  httpFallback?: () => ResponsesStream,
 ): ResponsesStream =>
   createResponsesSafeStream(
-    createClientPreflightStream(
+    streamWithCompactionHttpFallback(
       createContinuableResponsesWebSocketStream(
         request,
         {
@@ -262,7 +356,9 @@ const createPooledResponsesWebSocketStream = (
         },
       ),
       clientSignal,
+      httpFallback,
     ),
+    { signal: clientSignal },
   )
 
 const getResponsesWebSocketOptions = () => {
@@ -284,12 +380,27 @@ const getResponsesWebSocketOptions = () => {
   }
 }
 
-const createClientPreflightStream = async function* <T>(
-  source: AsyncIterable<T>,
+const streamWithCompactionHttpFallback = async function* (
+  source: ResponsesStream,
   clientSignal?: AbortSignal,
-): AsyncGenerator<T, void, unknown> {
+  httpFallback?: () => ResponsesStream,
+): ResponsesStream {
   if (clientSignal?.aborted) return
-  yield* source
+  try {
+    yield* source
+  } catch (error) {
+    if (
+      !httpFallback
+      || !(error instanceof ResponsesWebSocketMessageTooLargeError)
+    ) {
+      throw error
+    }
+    if (clientSignal?.aborted) return
+    consola.debug(
+      "Copilot Responses compaction message exceeded WebSocket limit; falling back to HTTP",
+    )
+    yield* httpFallback()
+  }
 }
 
 export const buildResponsesWebSocketPayload = (
