@@ -15,11 +15,12 @@ import { HTTPError } from "~/lib/http/error"
 import {
   getExtraPromptForModel,
   getReasoningEffortForModel,
-  isGpt56OrAbove,
+  supportsAllTurnsReasoningContext,
 } from "~/lib/config"
 import { getPromptCacheKey } from "~/lib/utils"
 import {
   type ResponsesPayload,
+  type ResponsesTextFormat,
   type ResponseInputCompaction,
   type ResponseInputContent,
   type ResponseInputFile,
@@ -54,8 +55,13 @@ import {
   type AnthropicToolUseBlock,
   type AnthropicUserContentBlock,
   type AnthropicUserMessage,
+  type BetaJSONOutputFormat,
 } from "~/lib/types/anthropic"
-import { normalizeToolSchema, THINKING_TEXT } from "../completions-translation"
+import {
+  normalizeToolSchema,
+  resolveJsonSchemaName,
+  THINKING_TEXT,
+} from "../completions-translation"
 
 import {
   decodeCompactionCarrierSignature,
@@ -67,8 +73,30 @@ export const MESSAGE_TYPE = "message"
 export const resolveReasoningEffort = (payload: AnthropicMessagesPayload) =>
   payload.output_config?.effort ?? getReasoningEffortForModel(payload.model)
 
+const translateOutputFormatToResponses = (
+  format: BetaJSONOutputFormat | null | undefined,
+): ResponsesTextFormat | undefined => {
+  if (format?.type !== "json_schema") {
+    return undefined
+  }
+
+  const description =
+    typeof format.schema.description === "string" ?
+      format.schema.description.trim()
+    : ""
+
+  return {
+    type: "json_schema",
+    name: resolveJsonSchemaName(format.schema),
+    schema: format.schema,
+    strict: false,
+    ...(description.length > 0 ? { description } : {}),
+  }
+}
+
 export const translateAnthropicMessagesToResponsesPayload = (
   payload: AnthropicMessagesPayload,
+  options: { forwardStructuredOutput?: boolean } = {},
 ): ResponsesPayload => {
   const input: Array<ResponseInputItem> = []
   const applyPhase = shouldApplyPhase(payload.model)
@@ -120,10 +148,16 @@ export const translateAnthropicMessagesToResponsesPayload = (
     input.unshift(createMessage(isGrok ? "system" : "developer", systemPrompt))
   }
 
+  const textFormat =
+    options.forwardStructuredOutput ?
+      translateOutputFormatToResponses(payload.output_config?.format)
+    : undefined
+
   const responsesPayload: ResponsesPayload = {
     model: payload.model,
     input,
     ...(sendSystemPromptInInput ? {} : { instructions: systemPrompt }),
+    ...(textFormat ? { text: { format: textFormat } } : {}),
     temperature: 1, // reasoning high temperature fixed to 1
     top_p: payload.top_p ?? null,
     max_output_tokens: payload.max_tokens,
@@ -914,15 +948,5 @@ export const convertToolResultContent = (
   return ""
 }
 
-export const isSupportAllTurns = (
-  payload: AnthropicMessagesPayload,
-): boolean => {
-  if (
-    payload.model === "gpt-5.4"
-    || payload.model === "gpt-5.4-mini"
-    || payload.model === "gpt-5.5"
-  ) {
-    return true
-  }
-  return isGpt56OrAbove(payload.model)
-}
+export const isSupportAllTurns = (payload: AnthropicMessagesPayload): boolean =>
+  supportsAllTurnsReasoningContext(payload.model)

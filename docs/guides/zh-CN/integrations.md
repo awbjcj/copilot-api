@@ -4,6 +4,22 @@
 
 [项目首页](../../../README.zh-CN.md) · [文档目录](README.md) · [English](../en/integrations.md)
 
+<a id="install-agent-skills"></a>
+
+## 安装 Agent Skills
+
+准备好 Node.js 和 Git 后，在 Windows PowerShell、macOS 或 Linux 终端运行下面的命令，从 `dev` 分支安装网关技能。
+
+```sh
+npx -y skills@latest add "https://github.com/caozhiyuan/copilot-api/tree/dev/.agents/skills" --global --agent codex --copy --yes --skill copilot-api-web-search copilot-api-imagegen copilot-api-videogen
+```
+
+这条命令安装[网页搜索](../../../.agents/skills/copilot-api-web-search/SKILL.md)、[图片生成与编辑](../../../.agents/skills/copilot-api-imagegen/SKILL.md)和[视频生成](../../../.agents/skills/copilot-api-videogen/SKILL.md)三个技能。
+
+`--agent codex` 配合 `--global` 会将技能安装到用户目录的 `~/.agents/skills`（Windows 下对应 `%USERPROFILE%\.agents\skills`），除 Claude Code 外大部分客户端都能直接加载（Claude Code 可改用 `--agent claude-code`）。`--copy` 直接复制文件，方便执行其中的 Node.js 脚本。安装后可在客户端里用 `/skills` 查看已安装的技能（如 AGY CLI 会话已打开，可先运行 `/skills reload`）。
+
+使用前先启动 copilot-api。技能默认连接 `http://localhost:4141`。如需使用其他地址，请在启动客户端的终端设置 `COPILOT_API_BASE_URL`。连接远程网关或网关启用了 API Key 校验时，请设置 `GITHUB_COPILOT_API_KEY`。
+
 <a id="gpt-tool-search"></a>
 
 ## GPT Tool Search

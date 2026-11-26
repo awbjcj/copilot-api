@@ -69,6 +69,7 @@ export async function handleCompletion(c: Context) {
 
 export interface CompletionPayloadOptions {
   compactType?: ReturnType<typeof getCompactType>
+  forwardStructuredOutput?: boolean
   skipClaudeAutoModel?: boolean
   skipModelMapping?: boolean
   skipWebSearch?: boolean
@@ -97,7 +98,11 @@ export async function handleCompletionPayload(
     const webSearchResult = await tryHandleWebSearch(c, anthropicPayload, {
       logger,
       forwardToProvider: (ctx, payload, provider) =>
-        handleProviderMessagesForProvider(ctx, { payload, provider }),
+        handleProviderMessagesForProvider(ctx, {
+          payload,
+          provider,
+          usageEndpoint: dispatchOptions.usageEndpoint,
+        }),
     })
     if (webSearchResult) return webSearchResult
   }
@@ -128,6 +133,7 @@ export async function handleCompletionPayload(
     return await handleProviderMessagesForProvider(c, {
       payload: anthropicPayload,
       provider: providerModelAlias.provider,
+      forwardStructuredOutput: dispatchOptions.forwardStructuredOutput,
       usageEndpoint: dispatchOptions.usageEndpoint,
     })
   }
@@ -217,6 +223,7 @@ export async function handleCompletionPayload(
         sessionId,
         compactType,
         logger,
+        forwardStructuredOutput: dispatchOptions.forwardStructuredOutput,
         usageEndpoint: dispatchOptions.usageEndpoint,
       },
     )
@@ -233,6 +240,7 @@ export async function handleCompletionPayload(
         sessionId,
         compactType,
         logger,
+        forwardStructuredOutput: dispatchOptions.forwardStructuredOutput,
         usageEndpoint: dispatchOptions.usageEndpoint,
       },
     )
@@ -248,6 +256,7 @@ export async function handleCompletionPayload(
       sessionId,
       compactType,
       logger,
+      forwardStructuredOutput: dispatchOptions.forwardStructuredOutput,
       usageEndpoint: dispatchOptions.usageEndpoint,
     },
   )
